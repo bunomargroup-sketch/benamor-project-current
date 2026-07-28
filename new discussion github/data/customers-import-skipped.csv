@@ -1,0 +1,10 @@
+row,Code client,Nom client,Téléphone,clean_phone,reason
+807,1444,حسن,948802030,948802030,duplicate phone; first row 765
+1023,1276,عبد القادر,914909292,914909292,duplicate phone; first row 440
+1103,1197,خديجة مغربي,912122754,912122754,duplicate phone; first row 1082
+1129,1172,اسامه العريفي,920001977,920001977,duplicate phone; first row 1118
+1654,657,محمد الحمادي,921005750,921005750,duplicate phone; first row 1099
+2280,52,عبد الوهاب بوراس,912151790,912151790,duplicate phone; first row 2274
+2283,28,إقبال بن الصوي بن عم,33661225546,33661225546,duplicate phone; first row 2170
+2336,9999,الزبون,99999,99999,duplicate phone; first row 1905
+2340,CLT0022,سليم السريحي,910816971,910816971,duplicate phone; first row 1739

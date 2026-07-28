@@ -1,0 +1,26 @@
+{
+  "name": "مجموعة بن عمر - Price Checker",
+  "short_name": "بن عمر",
+  "description": "تطبيق البحث السريع، السلات، إدارة المنتجات والطلبات لمجموعة بن عمر.",
+  "dir": "rtl",
+  "lang": "ar",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b1020",
+  "theme_color": "#1d4ed8",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
