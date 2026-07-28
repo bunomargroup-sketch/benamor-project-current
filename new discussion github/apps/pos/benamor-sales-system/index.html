@@ -852,7 +852,7 @@
             <div><label>الرصيد الافتتاحي</label><input id="customerOpening" type="text" inputmode="decimal" value="0"></div>
             <div><label>نوع الرصيد</label><select id="customerOpeningType"><option value="debit">على الزبون</option><option value="credit">للزبون رصيد عندنا</option></select></div>
             <div style="grid-column:1/-1"><label>ملاحظات</label><textarea id="customerNotes" placeholder="اختياري"></textarea></div>
-            <button class="btn" type="submit">حفظ الزبون</button>
+            <div class="row"><button class="btn" id="customerSubmitBtn" type="submit">حفظ الزبون</button><button class="btn secondary hidden" id="customerCancelEditBtn" type="button" onclick="resetCustomerForm()">إلغاء التعديل</button></div>
           </form>
         </div>
 
@@ -870,7 +870,7 @@
         </div>
 
         <div class="panel">
-          <div class="tools"><h2>قائمة الزبائن والديون</h2><input id="customerSearch" placeholder="بحث عن زبون..." style="max-width:300px" oninput="renderCustomers()"></div>
+          <div class="tools"><h2>قائمة الزبائن والديون</h2><input id="customerSearch" placeholder="بحث عن زبون..." style="max-width:300px" oninput="renderCustomers()"><label style="display:flex;align-items:center;gap:6px;margin:0"><input id="customerShowInactive" type="checkbox" style="width:auto" onchange="renderCustomers()"> إظهار المعطّلين</label></div>
           <div class="table-scroll"><table><thead><tr><th>رقم</th><th>الزبون</th><th>الهاتف</th><th>العنوان</th><th>الرصيد</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id="customersBody"></tbody></table></div>
         </div>
 
@@ -2270,8 +2270,16 @@ function badgeCustomer(balance){
 }
 function renderCustomers(){
   const term=(q('customerSearch')?.value||'').trim();
-  const rows=customers.filter(c=>!term || (c.name||'').includes(term) || (c.phone||'').includes(term));
-  q('customersBody').innerHTML = rows.map(c=>`<tr><td class="ltr"><b>${esc(c.customer_no)}</b></td><td><b>${c.name}</b><div class="muted">${c.notes||''}</div></td><td class="ltr">${c.phone||''}</td><td>${c.address||''}</td><td><b>${money(c.balance)}</b></td><td>${badgeCustomer(c.balance)}</td><td><button class="btn secondary" onclick="openCustomerLedger('${c.id}')">كشف الحساب</button></td></tr>`).join('') || '<tr><td colspan="7">لا يوجد زبائن بعد.</td></tr>';
+  const showInactive=q('customerShowInactive')?.checked;
+  const isAdmin=currentRole?.role==='admin';
+  const rows=customers.filter(c=>(!term || (c.name||'').includes(term) || (c.phone||'').includes(term)) && (showInactive || c.active!==false));
+  q('customersBody').innerHTML = rows.map(c=>{
+    const inactive=c.active===false;
+    const actions=[`<button class="btn secondary" onclick="openCustomerLedger('${c.id}')">كشف الحساب</button>`,`<button class="btn secondary" onclick="editCustomer('${c.id}')">تعديل</button>`];
+    if(inactive) actions.push(`<button class="btn" onclick="toggleCustomerActive('${c.id}',true)">تفعيل</button>`);
+    else if(isAdmin) actions.push(`<button class="btn danger" onclick="deleteCustomer('${c.id}')">حذف</button>`);
+    return `<tr${inactive?' style="opacity:.55"':''}><td class="ltr"><b>${esc(c.customer_no)}</b></td><td><b>${c.name}</b>${inactive?' <span class="badge gray">معطّل</span>':''}<div class="muted">${c.notes||''}</div></td><td class="ltr">${c.phone||''}</td><td>${c.address||''}</td><td><b>${money(c.balance)}</b></td><td>${badgeCustomer(c.balance)}</td><td><div class="row">${actions.join('')}</div></td></tr>`;
+  }).join('') || '<tr><td colspan="7">لا يوجد زبائن بعد.</td></tr>';
 }
 function openCustomerLedger(id){document.querySelector('[data-tab="customers"]').click(); q('customerLedgerCustomer').value=id; renderCustomerLedger()}
 function renderCustomerLedger(){
@@ -3495,20 +3503,88 @@ q('roleForm').addEventListener('submit', async e=>{
   finally{showLoading(false);window.__busy=false}
 });
 
+let editingCustomerId=null;
+function resetCustomerForm(){
+  editingCustomerId=null;
+  const f=q('customerForm'); if(f) f.reset();
+  if(q('customerOpening')) q('customerOpening').value=0;
+  const btn=q('customerSubmitBtn'); if(btn) btn.textContent='حفظ الزبون';
+  q('customerCancelEditBtn')?.classList.add('hidden');
+}
+function editCustomer(id){
+  const c=customers.find(x=>x.id===id); if(!c){toast('لم يتم العثور على الزبون','warn');return;}
+  editingCustomerId=id;
+  openTab('customers');
+  if(q('customerName')) q('customerName').value=c.name||'';
+  if(q('customerPhone')) q('customerPhone').value=c.phone||'';
+  if(q('customerAddress')) q('customerAddress').value=c.address||'';
+  if(q('customerNotes')) q('customerNotes').value=c.notes||'';
+  if(q('customerOpening')) q('customerOpening').value=0;
+  const btn=q('customerSubmitBtn'); if(btn) btn.textContent='حفظ التعديل';
+  q('customerCancelEditBtn')?.classList.remove('hidden');
+  q('customerName')?.focus();
+}
+async function toggleCustomerActive(id, makeActive){
+  if(window.__busy) return; window.__busy=true;
+  try{
+    showLoading(true);
+    await api('pos_customers',{method:'PATCH',qs:`?id=eq.${id}`,body:{active:!!makeActive,updated_at:new Date().toISOString()}});
+    toast(makeActive?'تم تفعيل الزبون':'تم تعطيل الزبون','success');
+    if(editingCustomerId===id && !makeActive) resetCustomerForm();
+    await loadAll();
+  }catch(err){console.error(err);toast('تعذر تغيير حالة الزبون: '+friendlyError(err),'error')}
+  finally{showLoading(false);window.__busy=false}
+}
+async function deleteCustomer(id){
+  if(currentRole?.role!=='admin'){toast('الحذف متاح للمدير فقط','warn');return;}
+  const c=customers.find(x=>x.id===id); if(!c){toast('لم يتم العثور على الزبون','warn');return;}
+  if(!confirm(`هل تريد حذف الزبون "${c.name||''}"؟`)) return;
+  if(window.__busy) return; window.__busy=true;
+  try{
+    showLoading(true);
+    const hasSales=sales.some(s=>s.customer_id===id);
+    const hasBalance=Math.abs(Number(c.balance||0))>0.001;
+    if(hasSales||hasBalance){
+      // لدى الزبون فواتير/رصيد: لا نحذف نهائيًا حتى لا نُتلف سجل الديون (يُحذف كشف الحساب تلقائيًا بسبب القيد المرجعي). نعطّله بدلًا من ذلك.
+      await api('pos_customers',{method:'PATCH',qs:`?id=eq.${id}`,body:{active:false,updated_at:new Date().toISOString()}});
+      const reasons=[]; if(hasSales) reasons.push('لديه فواتير بيع'); if(hasBalance) reasons.push(`لديه رصيد ${money(c.balance)} ${APP_CONFIG.currency}`);
+      toast('لا يمكن الحذف النهائي ('+reasons.join('، ')+') — تم تعطيل الزبون وإخفاؤه. أظهره بخانة "إظهار المعطّلين" ثم فعّله إن لزم.','warn');
+    }else{
+      await api('pos_customers',{method:'DELETE',qs:`?id=eq.${id}`});
+      toast('تم حذف الزبون نهائيًا','success');
+    }
+    if(editingCustomerId===id) resetCustomerForm();
+    await loadAll();
+  }catch(err){console.error(err);toast('تعذر حذف الزبون: '+friendlyError(err)+' — تأكد من تشغيل ملف صلاحية حذف الزبائن للمدير','error')}
+  finally{showLoading(false);window.__busy=false}
+}
 q('customerForm').addEventListener('submit', async e=>{
   e.preventDefault();
   if(window.__busy) return; window.__busy=true;
   try{
     showLoading(true);
-    const opening=Math.abs(moneyVal(q('customerOpening').value));
-    const created=await api('pos_customers',{method:'POST',body:{name:q('customerName').value.trim(),phone:q('customerPhone').value.trim()||null,address:q('customerAddress').value.trim()||null,notes:q('customerNotes').value.trim()||null,active:true}});
-    const c=created[0];
-    if(opening>0){
-      const isDebit=q('customerOpeningType').value==='debit';
-      await api('pos_customer_ledger',{method:'POST',body:{customer_id:c.id,entry_type:'opening',description:'رصيد افتتاحي',debit:isDebit?opening:0,credit:isDebit?0:opening}});
+    const body={name:q('customerName').value.trim(),phone:q('customerPhone').value.trim()||null,address:q('customerAddress').value.trim()||null,notes:q('customerNotes').value.trim()||null};
+    if(!body.name){toast('اكتب اسم الزبون','warn');return;}
+    if(body.phone){
+      const norm=p=>String(p||'').replace(/[^0-9+]/g,'');
+      const dup=customers.find(x=>x.id!==editingCustomerId && norm(x.phone)===norm(body.phone) && norm(body.phone));
+      if(dup){toast(`رقم الهاتف مسجّل لزبون آخر: ${dup.name||''}`,'warn');return;}
     }
-    e.target.reset(); q('customerOpening').value=0; toast('تم حفظ الزبون'); await loadAll();
-  }catch(err){console.error(err);toast('خطأ في حفظ الزبون: '+err.message+' - تأكد من تشغيل ملف sales SQL')}
+    if(editingCustomerId){
+      await api('pos_customers',{method:'PATCH',qs:`?id=eq.${editingCustomerId}`,body:{...body,updated_at:new Date().toISOString()}});
+      toast('تم تعديل بيانات الزبون','success');
+    }else{
+      const opening=Math.abs(moneyVal(q('customerOpening').value));
+      const created=await api('pos_customers',{method:'POST',body:{...body,active:true}});
+      const c=created[0];
+      if(opening>0){
+        const isDebit=q('customerOpeningType').value==='debit';
+        await api('pos_customer_ledger',{method:'POST',body:{customer_id:c.id,entry_type:'opening',description:'رصيد افتتاحي',debit:isDebit?opening:0,credit:isDebit?0:opening}});
+      }
+      toast('تم حفظ الزبون','success');
+    }
+    resetCustomerForm(); await loadAll();
+  }catch(err){console.error(err);toast('خطأ في حفظ الزبون: '+friendlyError(err),'error')}
   finally{showLoading(false);window.__busy=false}
 });
 
@@ -4306,9 +4382,16 @@ const CTX_BUILDERS={
       {label:'تسجيل دفعة للمورد',icon:'ti-cash',action:()=>{openTab('payments'); if(q('paymentSupplier'))q('paymentSupplier').value=id;}}];
   },
   customersBody(tr){const id=ctxArg(tr.querySelector('button[onclick^="openCustomerLedger"]'),'openCustomerLedger'); if(!id) return [];
-    return [{head:'الزبون'},
+    const c=customers.find(x=>x.id===id);
+    const items=[{head:'الزبون'},
       {label:'كشف الحساب',icon:'ti-file-analytics',action:()=>openCustomerLedger(id)},
+      {label:'تعديل البيانات',icon:'ti-edit',action:()=>editCustomer(id)},
       {label:'تسجيل دفعة من الزبون',icon:'ti-cash',action:()=>{openTab('customers'); if(q('customerPaymentCustomer'))q('customerPaymentCustomer').value=id;}}];
+    if(c){
+      if(c.active===false) items.push({label:'تفعيل الزبون',icon:'ti-check',action:()=>toggleCustomerActive(id,true)});
+      else if(currentRole?.role==='admin') items.push({label:'حذف (مدير)',icon:'ti-trash',action:()=>deleteCustomer(id)});
+    }
+    return items;
   },
   purchasesBody(tr){const id=ctxArg(tr.querySelector('button[onclick^="openPurchaseForEdit"]'),'openPurchaseForEdit'); if(!id) return [];
     return [{head:'فاتورة شراء'},{label:'فتح / تعديل',icon:'ti-edit',action:()=>openPurchaseForEdit(id)}];
