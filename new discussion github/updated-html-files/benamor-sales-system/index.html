@@ -2750,9 +2750,35 @@ function updateSaleTotal(){
   q('salePaidAmount').value=money(isRefund?-rawPaid:rawPaid);
   q('saleTotal').textContent=money(total); if(q('saleHeaderTotal')) q('saleHeaderTotal').textContent=money(total); if(q('saleFinishTotal')) q('saleFinishTotal').textContent=money(total); if(q('salePaymentScreenTotal')) q('salePaymentScreenTotal').textContent=isRefund?'استرداد '+money(required):money(total); q('saleBalance').textContent=over>0?('+'+money(over)):money(bal); if(q('saleFinishBalance')) q('saleFinishBalance').textContent=isRefund?('المطلوب رده للزبون: '+money(required)+' '+APP_CONFIG.currency):((over>0?'زيادة: ':'المتبقي: ')+money(over>0?over:bal)+' '+APP_CONFIG.currency); renderSaleCustomerInfo(); if(q('salePaymentDetected')) {q('salePaymentDetected').textContent=isRefund?(over>0?'تنبيه: مبلغ الاسترداد أكبر من المطلوب بمبلغ '+money(over)+' '+APP_CONFIG.currency:'استرداد للزبون: '+money(required)+' '+APP_CONFIG.currency+' — '+(paymentBreakdownText(getSalePaymentBreakdown())||'اختر طريقة الاسترداد')):(over>0?'تنبيه: المدفوع أكبر من إجمالي الفاتورة بمبلغ '+money(over)+' '+APP_CONFIG.currency:'طريقة الدفع: '+typeLabel(detectSalePaymentMethod(bal))+' — '+(paymentBreakdownText(getSalePaymentBreakdown())||'لم يتم إدخال دفع')); q('salePaymentDetected').style.color=(over>0||isRefund)?'var(--bad)':'';}
 }
+function matchExistingCustomerByPhone(phone){
+  const norm=String(phone||'').replace(/[^0-9+]/g,'');
+  if(!norm) return null;
+  return customers.find(c=>String(c.phone||'').replace(/[^0-9+]/g,'')===norm) || null;
+}
 async function ensureSaleCustomer(balanceDue){
   let customer_id=q('saleCustomer').value||null;
   const newName=q('saleNewCustomerName').value.trim(); const newPhone=q('saleNewCustomerPhone').value.trim();
+  if(!customer_id && newPhone){
+    // التعرف على الزبون المسجّل عبر رقم الهاتف بدل إنشاء نسخة مكررة (تفادي رسالة "الرقم مسجّل")
+    let existing=matchExistingCustomerByPhone(newPhone);
+    if(!existing){
+      const variants=[...new Set([newPhone, String(newPhone).replace(/[^0-9]/g,''), '+'+String(newPhone).replace(/[^0-9]/g,'')])].filter(Boolean);
+      for(const v of variants){
+        if(!v) continue;
+        try{
+          const rows=await api('pos_customers',{qs:`?select=id,name,phone&phone=eq.${encodeURIComponent(v)}&limit=1`});
+          if(rows&&rows.length){ existing=rows[0]; if(!customers.find(c=>c.id===existing.id)) customers.push(existing); break; }
+        }catch(e){ console.warn('customer phone lookup failed',e); }
+      }
+    }
+    if(existing){
+      customer_id=existing.id;
+      if(q('saleCustomer')) q('saleCustomer').value=existing.id;
+      q('saleNewCustomerName').value=''; q('saleNewCustomerPhone').value='';
+      try{renderSaleCustomerInfo();}catch(e){}
+      toast(`تم التعرف على الزبون المسجّل: ${existing.name||''} واعتماده في الفاتورة`,'success');
+    }
+  }
   if(!customer_id && newName){
     const created=await api('pos_customers',{method:'POST',body:{name:newName,phone:newPhone||null,active:true}});
     customer_id=created[0].id;
