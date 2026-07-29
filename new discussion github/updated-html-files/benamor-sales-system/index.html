@@ -4093,12 +4093,15 @@ function getDailyCashData(opts={}){
   });
   dayExpenses.forEach(e=>dailyCashAdd(expensesPay,dailyCashMethodFromAccount(e.account_id),e.amount));
   const dayCustomerPayMoves=[], daySupplierPayMoves=[];
+  let settlementShortage=0, settlementSurplus=0;
   financeMovements.filter(m=>m.movement_date===date).forEach(m=>{
     const a=financeAccounts.find(x=>x.id===m.account_id); if(branch && a?.location_id!==branch) return;
     const method=dailyCashMethodFromAccount(m.account_id);
     if(m.movement_type==='customer_payment' && m.direction==='in'){ dailyCashAdd(customerPay,method,m.amount); dayCustomerPayMoves.push({m,method}); }
     if(m.movement_type==='supplier_payment' && m.direction==='out'){ dailyCashAdd(supplierPay,method,m.amount); daySupplierPayMoves.push({m,method}); }
     if(m.movement_type==='customer_refund' && m.direction==='out') dailyCashAdd(refundsPay,method,m.amount);
+    if(m.movement_type==='cash_shortage' && m.direction==='out') settlementShortage+=Number(m.amount||0);
+    if(m.movement_type==='cash_surplus' && m.direction==='in') settlementSurplus+=Number(m.amount||0);
   });
   const dayReturns=saleReturns.filter(r=>r.return_date===date && (!branch||r.location_id===branch));
   dayReturns.forEach(r=>{
@@ -4106,7 +4109,7 @@ function getDailyCashData(opts={}){
     const hasMove=financeMovements.some(m=>m.reference_table==='pos_sale_returns' && m.reference_id===r.id && m.movement_type==='customer_refund');
     if(!hasMove && ['cash','card','bank_transfer'].includes(r.refund_method)) dailyCashAdd(refundsPay,r.refund_method,r.total);
   });
-  const cashRemaining=salesPay.cash + customerPay.cash - expensesPay.cash - supplierPay.cash - refundsPay.cash;
+  const cashRemaining=salesPay.cash + customerPay.cash + settlementSurplus - expensesPay.cash - supplierPay.cash - refundsPay.cash - settlementShortage;
   const invoiceCount=Object.keys(salesById).length;
   // ---- تفاصيل إضافية للتقرير المفصّل ----
   const totalSales=daySalesArr.reduce((a,s)=>a+Number(s.total||0),0);
@@ -4128,7 +4131,7 @@ function getDailyCashData(opts={}){
   const countedCash=Number(localStorage.getItem(dailyCashCountedKey(date,branch))||0)||0;
   const difference=countedCash-cashRemaining;
   return {date,branch,branchName,salesPay,expensesPay,customerPay,supplierPay,refundsPay,cashRemaining,invoiceCount,
-    salesSummary,invoices,expensesByCategory,refunds,customerPayments,supplierPayments,nonCash,saved,savedStatus,countedCash,difference};
+    salesSummary,invoices,expensesByCategory,refunds,customerPayments,supplierPayments,nonCash,saved,savedStatus,countedCash,difference,settlementShortage,settlementSurplus};
 }
 function updateDailyCashDifference(){
   const inp=q('dailyCashCounted'); if(!inp)return;
@@ -4173,7 +4176,17 @@ function renderDailyCashReport(){
   const salesRows=[`<tr><td>عدد الفواتير</td><td>${ss.invoiceCount}</td></tr>`,`<tr><td>إجمالي المبيعات</td><td><b>${money(ss.totalSales)}</b></td></tr>`,`<tr><td>مبيعات كاش</td><td>${money(ss.cashSales)}</td></tr>`,`<tr><td>مبيعات بطاقة</td><td>${money(ss.cardSales)}</td></tr>`,`<tr><td>مبيعات تحويل</td><td>${money(ss.bankSales)}</td></tr>`,`<tr><td>مبيعات آجل / غير مدفوعة</td><td>${money(ss.creditSales)}</td></tr>`,`<tr><td>إجمالي الخصومات</td><td>${money(ss.totalDiscounts)}</td></tr>`,`<tr><td>متوسط قيمة الفاتورة</td><td>${money(ss.avgInvoice)}</td></tr>`];
   const salesSec=sectionCard('ملخص المبيعات', tbl(['البيان','القيمة '+cur],salesRows));
   // 4) ملخص الحركة النقدية
-  const cashMoveRows=[`<tr><td>رصيد الافتتاح (يبدأ بصفر)</td><td>0.00</td></tr>`,`<tr><td>+ مبيعات كاش</td><td>${money(d.salesPay.cash)}</td></tr>`,`<tr><td>+ دفعات الزبائن كاش</td><td>${money(d.customerPay.cash)}</td></tr>`,`<tr><td>− مرتجعات/استرداد كاش</td><td>${money(d.refundsPay.cash)}</td></tr>`,`<tr><td>− دفعات الموردين كاش</td><td>${money(d.supplierPay.cash)}</td></tr>`,`<tr><td>− مصاريف كاش</td><td>${money(d.expensesPay.cash)}</td></tr>`,`<tr><td><b>= الكاش المتبقي المتوقع</b></td><td><b class="${cashCls(d.cashRemaining)}">${money(d.cashRemaining)}</b></td></tr>`];
+  const cashMoveRows=[
+    `<tr><td>رصيد الافتتاح (يبدأ بصفر)</td><td>0.00</td></tr>`,
+    `<tr><td>+ مبيعات كاش</td><td>${money(d.salesPay.cash)}</td></tr>`,
+    `<tr><td>+ دفعات الزبائن كاش</td><td>${money(d.customerPay.cash)}</td></tr>`,
+    (d.settlementSurplus?`<tr><td>+ تسوية زيادة صندوق</td><td>${money(d.settlementSurplus)}</td></tr>`:''),
+    `<tr><td>− مرتجعات/استرداد كاش</td><td>${money(d.refundsPay.cash)}</td></tr>`,
+    `<tr><td>− دفعات الموردين كاش</td><td>${money(d.supplierPay.cash)}</td></tr>`,
+    `<tr><td>− مصاريف كاش</td><td>${money(d.expensesPay.cash)}</td></tr>`,
+    (d.settlementShortage?`<tr><td>− تسوية عجز صندوق (دين على المسؤول)</td><td>${money(d.settlementShortage)}</td></tr>`:''),
+    `<tr><td><b>= الكاش المتبقي المتوقع</b></td><td><b class="${cashCls(d.cashRemaining)}">${money(d.cashRemaining)}</b></td></tr>`
+  ].filter(Boolean);
   const cashSec=sectionCard('ملخص الحركة النقدية (المتوقع)', tbl(['البيان','القيمة '+cur],cashMoveRows));
   // 5) الحركة حسب الطريقة (موجود)
   const methodSec=sectionCard('الحركة حسب طريقة الدفع', tbl(['البيان','كاش','بطاقة','تحويل','الإجمالي'],[dailyCashTableRows(d)]));
@@ -4191,7 +4204,8 @@ function renderDailyCashReport(){
       <div><label>الكاش المعدود (اختياري — يُحفظ على هذا الجهاز فقط)</label><input id="dailyCashCounted" type="text" inputmode="decimal" placeholder="0" style="max-width:180px;font-size:18px;font-weight:800" data-expected="${d.cashRemaining}" data-date="${esc(d.date)}" data-branch="${esc(d.branch||'')}" value="${d.countedCash?money(d.countedCash).replace(/,/g,''):''}" oninput="updateDailyCashDifference()"></div>
       <div><label>الفرق (المعدود − المتوقع)</label><div class="num" id="dailyCashDifference" style="font-size:20px">${(d.difference>0?'+':'')+money(d.difference)} ${cur}</div></div>
     </div>
-    <p class="muted" style="margin-top:8px">إذا تغيّرت الفواتير أو المصاريف بعد حفظ الإغلاق، يتحدّث هذا التقرير تلقائيًا من البيانات الحالية. يُحوَّل المتبقي إلى خزينة الإدارة من زر «تحويل المتبقي لخزينة الإدارة».</p></div>`;
+    <p class="muted" style="margin-top:8px">إذا تغيّرت الفواتير أو المصاريف بعد حفظ الإغلاق، يتحدّث هذا التقرير تلقائيًا من البيانات الحالية. يُحوَّل المتبقي إلى خزينة الإدارة من زر «تحويل المتبقي لخزينة الإدارة».</p>
+    <div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">${Math.abs(d.difference)>=0.01?`<button class="btn danger" type="button" onclick="settleDailyCashDifference()">تسوية الفرق (${(d.difference>0?'+':'')+money(d.difference)} ${cur})</button><span class="muted">العجز ← دين على المسؤول، الزيادة ← إيراد بالخزينة. يتطلب موافقة المدير.</span>`:`<span class="muted">المعدود يطابق المتوقع — لا حاجة للتسوية.${d.settlementShortage||d.settlementSurplus?' (تمت تسوية فرق هذا اليوم سابقاً)':''}</span>`}</div></div>`;
   // 9) القوائم التفصيلية القابلة للطي
   const invRows=d.invoices.map(i=>`<tr><td class="ltr">${esc(i.invoice_no)}</td><td class="ltr">${esc(i.time)}</td><td>${esc(i.customer)}</td><td>${esc(M[i.payment_method]||i.payment_method)}</td><td><b>${money(i.total)}</b></td><td>${money(i.paid)}</td><td class="${i.balance_due>0?'stock-negative':''}">${money(i.balance_due)}</td><td class="mini">${esc(i.seller||'—')}</td></tr>`);
   const refRows=d.refunds.map(r=>`<tr><td class="ltr">${esc(r.time)}</td><td class="ltr">${esc(r.original_invoice||'—')}</td><td>${esc(M[r.refund_method]||r.refund_method)}</td><td><b>${money(r.amount)}</b></td><td>${esc(r.customer)}</td></tr>`);
@@ -4219,7 +4233,17 @@ function dailyCashPrintHtml(d, meta={}){
   const ss=d.salesSummary||{};
   const nc=d.nonCash||{};
   const salesRows=[`<tr><td>عدد الفواتير</td><td>${ss.invoiceCount??d.invoiceCount}</td></tr>`,`<tr><td>إجمالي المبيعات</td><td><b>${money(ss.totalSales??0)}</b></td></tr>`,`<tr><td>مبيعات كاش</td><td>${money(ss.cashSales??0)}</td></tr>`,`<tr><td>مبيعات بطاقة</td><td>${money(ss.cardSales??0)}</td></tr>`,`<tr><td>مبيعات تحويل</td><td>${money(ss.bankSales??0)}</td></tr>`,`<tr><td>مبيعات آجل / غير مدفوعة</td><td>${money(ss.creditSales??0)}</td></tr>`,`<tr><td>إجمالي الخصومات</td><td>${money(ss.totalDiscounts??0)}</td></tr>`,`<tr><td>متوسط قيمة الفاتورة</td><td>${money(ss.avgInvoice??0)}</td></tr>`];
-  const cashMoveRows=[`<tr><td>رصيد الافتتاح</td><td>0.00</td></tr>`,`<tr><td>+ مبيعات كاش</td><td>${money(d.salesPay.cash)}</td></tr>`,`<tr><td>+ دفعات الزبائن كاش</td><td>${money(d.customerPay.cash)}</td></tr>`,`<tr><td>− مرتجعات/استرداد كاش</td><td>${money(d.refundsPay.cash)}</td></tr>`,`<tr><td>− دفعات الموردين كاش</td><td>${money(d.supplierPay.cash)}</td></tr>`,`<tr><td>− مصاريف كاش</td><td>${money(d.expensesPay.cash)}</td></tr>`,`<tr class="totalrow"><td>= الكاش المتبقي المتوقع</td><td class="${cashCls(d.cashRemaining)}">${money(d.cashRemaining)}</td></tr>`];
+  const cashMoveRows=[
+    `<tr><td>رصيد الافتتاح</td><td>0.00</td></tr>`,
+    `<tr><td>+ مبيعات كاش</td><td>${money(d.salesPay.cash)}</td></tr>`,
+    `<tr><td>+ دفعات الزبائن كاش</td><td>${money(d.customerPay.cash)}</td></tr>`,
+    (d.settlementSurplus?`<tr><td>+ تسوية زيادة صندوق</td><td>${money(d.settlementSurplus)}</td></tr>`:''),
+    `<tr><td>− مرتجعات/استرداد كاش</td><td>${money(d.refundsPay.cash)}</td></tr>`,
+    `<tr><td>− دفعات الموردين كاش</td><td>${money(d.supplierPay.cash)}</td></tr>`,
+    `<tr><td>− مصاريف كاش</td><td>${money(d.expensesPay.cash)}</td></tr>`,
+    (d.settlementShortage?`<tr><td>− تسوية عجز صندوق (دين على المسؤول)</td><td>${money(d.settlementShortage)}</td></tr>`:''),
+    `<tr class="totalrow"><td>= الكاش المتبقي المتوقع</td><td class="${cashCls(d.cashRemaining)}">${money(d.cashRemaining)}</td></tr>`
+  ].filter(Boolean);
   const nonCashRows=[`<tr><td>مبيعات بطاقة / تحويل</td><td>${money(nc.cardSales||0)}</td><td>${money(nc.bankSales||0)}</td></tr>`,`<tr><td>مصاريف بطاقة / تحويل</td><td>${money(nc.cardExpenses||0)}</td><td>${money(nc.bankExpenses||0)}</td></tr>`,`<tr><td>مرتجعات بطاقة / تحويل</td><td>${money(nc.cardRefunds||0)}</td><td>${money(nc.bankRefunds||0)}</td></tr>`,`<tr><td>دفعات الزبائن بطاقة / تحويل</td><td>${money(nc.cardCustomer||0)}</td><td>${money(nc.bankCustomer||0)}</td></tr>`,`<tr><td>دفعات الموردين بطاقة / تحويل</td><td>${money(nc.cardSupplier||0)}</td><td>${money(nc.bankSupplier||0)}</td></tr>`];
   const expCatRows=(d.expensesByCategory||[]).map(c=>`<tr><td>${esc(c.name)}</td><td>${money(c.cash)}</td><td>${money(c.card)}</td><td>${money(c.bank_transfer)}</td><td><b>${money(c.total)}</b></td></tr>`);
   const invRows=(d.invoices||[]).map(i=>`<tr><td>${esc(i.invoice_no)}</td><td>${esc(i.time)}</td><td>${esc(i.customer)}</td><td>${esc(M[i.payment_method]||i.payment_method)}</td><td><b>${money(i.total)}</b></td><td>${money(i.paid)}</td><td>${money(i.balance_due)}</td><td>${esc(i.seller||'—')}</td></tr>`);
@@ -4323,6 +4347,42 @@ function printSavedDailyCashClosing(id){
   showInAppPrint(dailyCashPrintHtml(d,meta));
 }
 
+async function settleDailyCashDifference(){
+  const d=getDailyCashData();
+  const diff=Number(d.difference||0);
+  if(Math.abs(diff)<0.009){toast('لا يوجد فرق للتسوية — المعدود يطابق المتوقع','warn');return;}
+  if(!d.branch){toast('اختر فرعاً محدداً قبل التسوية','warn');return;}
+  const kind=diff<0?'عجز':'زيادة';
+  const reason=prompt(`سبب التسوية (${kind} ${money(Math.abs(diff))} ${APP_CONFIG.currency}):`,'');
+  if(reason===null) return;
+  if(!reason.trim()){toast('اكتب سبب التسوية','warn');return;}
+  const ok=await requestSupervisorApproval('تسوية فرق الصندوق',`${kind} ${money(Math.abs(diff))} ${APP_CONFIG.currency} - ${d.branchName} - ${d.date}`);
+  if(!ok){toast('لم يتم اعتماد التسوية','warn');return;}
+  if(window.__busy) return; window.__busy=true;
+  try{
+    showLoading(true);
+    const cashAccount=financeAccounts.find(a=>a.account_type==='cash' && a.location_id===d.branch) || financeAccounts.find(a=>a.account_type==='cash');
+    if(!cashAccount){toast('لا توجد خزينة نقدية لهذا الفرع لإنشاء قيد التسوية','warn');return;}
+    if(diff<0){
+      // عجز = دين على المسؤول + إخراج النقد من خزينة الفرع (قيد مزدوج يُغلق التسوية)
+      const amt=Math.abs(diff);
+      const custName=`عجز صندوق — ${appUser?.identifier||'المسؤول'}`;
+      let cust=customers.find(c=>(c.name||'').trim()===custName);
+      if(!cust){const created=await api('pos_customers',{method:'POST',body:{name:custName,active:false,notes:'زبون آلي لتتبع عجز الصندوق على المسؤولين'}}); cust=created[0]; customers.push(cust);}
+      await api('pos_customer_ledger',{method:'POST',body:{customer_id:cust.id,entry_date:d.date,entry_type:'adjustment',description:`عجز صندوق يوم ${d.date} - فرع ${d.branchName} - المسؤول: ${appUser?.identifier||''}${reason.trim()?' - '+reason.trim():''}`,debit:amt,credit:0}});
+      await addFinanceMovement(cashAccount.id,'out','cash_shortage',amt,d.date,'pos_daily_cash_closings',null,`عجز صندوق - ${d.branchName} - ${d.date} - المسؤول: ${appUser?.identifier||''}${reason.trim()?' - '+reason.trim():''}`);
+      toast(`تمت تسوية العجز ${money(amt)} ${APP_CONFIG.currency} كدين على «${custName}»`,'success');
+    }else{
+      // زيادة = إيراد يُدخل إلى الخزينة
+      const amt=diff;
+      await addFinanceMovement(cashAccount.id,'in','cash_surplus',amt,d.date,'pos_daily_cash_closings',null,`زيادة صندوق - ${d.branchName} - ${d.date}${reason.trim()?' - '+reason.trim():''}`);
+      toast(`تمت تسوية الزيادة ${money(amt)} ${APP_CONFIG.currency} كإيراد في الخزينة`,'success');
+    }
+    await loadAll();
+    renderDailyCashReport();
+  }catch(e){console.error(e);toast('تعذرت تسوية الفرق: '+friendlyError(e),'error')}
+  finally{showLoading(false);window.__busy=false}
+}
 function printDailyCashReport(){
   const d=getDailyCashData();
   showInAppPrint(dailyCashPrintHtml(d,{responsible:appUser?.identifier||'', savedStatus:d.savedStatus, notes:d.saved?.notes||''}));
