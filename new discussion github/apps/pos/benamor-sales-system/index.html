@@ -1140,7 +1140,7 @@
 
         <section id="dailyCashClosing" class="section">
           <div class="panel">
-            <div class="tools"><h2>تقرير حالة الخزينة اليومية</h2><div class="row"><input id="dailyCashDate" type="date" onchange="renderDailyCashReport()"><select id="dailyCashBranch" onchange="renderDailyCashReport()" style="min-width:220px"></select><button class="btn secondary" type="button" onclick="printDailyCashReport()">طباعة التقرير</button><button class="btn" type="button" onclick="saveDailyCashClosing()">حفظ إغلاق اليوم</button><button class="btn secondary" type="button" onclick="prepareDailyCashTransfer()">تحويل المتبقي لخزينة الإدارة</button></div></div>
+            <div class="tools"><h2>تقرير حالة الخزينة</h2><div class="row"><label class="mini" style="margin:0">من</label><input id="dailyCashDateFrom" type="date" onchange="renderDailyCashReport()"><label class="mini" style="margin:0">إلى</label><input id="dailyCashDateTo" type="date" onchange="renderDailyCashReport()"><select id="dailyCashBranch" onchange="renderDailyCashReport()" style="min-width:200px"></select><button class="btn secondary" type="button" onclick="printDailyCashReport()">طباعة التقرير</button><button class="btn" type="button" onclick="saveDailyCashClosing()">حفظ إغلاق اليوم</button><button class="btn secondary" type="button" onclick="prepareDailyCashTransfer()">تحويل المتبقي لخزينة الإدارة</button></div><div class="row" style="margin-top:8px;flex-wrap:wrap"><span class="mini">فترة سريعة:</span><button class="btn secondary" type="button" onclick="setCashPeriod(1)">اليوم</button><button class="btn secondary" type="button" onclick="setCashPeriod(4)">4 أيام</button><button class="btn secondary" type="button" onclick="setCashPeriod(7)">أسبوع</button><button class="btn secondary" type="button" onclick="setCashPeriod(30)">شهر</button><button class="btn secondary" type="button" onclick="setCashPeriod(90)">3 أشهر</button></div></div>
             <p class="muted">التقرير ديناميكي ويمكن طباعته في أي وقت. إذا تم تعديل أو إضافة فواتير بعد إذن المدير، سيتغير التقرير حسب البيانات الحالية.</p>
             <div id="dailyCashReportBody"></div><div class="panel" style="box-shadow:none;margin-top:14px"><h2>سجل إغلاقات الخزينة السابقة</h2><div class="table-scroll"><table><thead><tr><th>التاريخ</th><th>الفرع</th><th>المسؤول</th><th>عدد الفواتير</th><th>المتبقي كاش</th><th>وقت الحفظ</th><th>ملاحظات</th><th>إجراء</th></tr></thead><tbody id="dailyCashClosingsBody"></tbody></table></div></div>
           </div>
@@ -4247,12 +4247,24 @@ function dailyCashSupplierNameForMovement(m){
 }
 const DAILY_METHOD_LABELS={cash:'نقدي',card:'بطاقة',bank_transfer:'تحويل مصرفي',bank:'تحويل مصرفي',credit:'آجل',credit_reduction:'تخفيض دين',none:'بدون',mixed:'مختلط'};
 function getDailyCashData(opts={}){
-  if(!opts.date) fillDailyCashBranches();
-  const date=opts.date || (q('dailyCashDate')?.value || new Date().toISOString().slice(0,10));
-  if(!opts.date && q('dailyCashDate') && !q('dailyCashDate').value) q('dailyCashDate').value=date;
+  if(!opts.date && !opts.dateFrom && !opts.dateTo) fillDailyCashBranches();
+  const today=new Date().toISOString().slice(0,10);
+  let from, to;
+  if(opts.date){ from=opts.date; to=opts.date; }
+  else {
+    from=opts.dateFrom||(q('dailyCashDateFrom')?.value||today);
+    to=opts.dateTo||(q('dailyCashDateTo')?.value||today);
+    if(!opts.dateFrom && !opts.dateTo){
+      if(q('dailyCashDateFrom') && !q('dailyCashDateFrom').value) q('dailyCashDateFrom').value=today;
+      if(q('dailyCashDateTo') && !q('dailyCashDateTo').value) q('dailyCashDateTo').value=today;
+    }
+  }
+  const date=to;
   const branch=(opts.branch!==undefined)?opts.branch:(q('dailyCashBranch')?.value || '');
   const branchName=branch?(locations.find(l=>l.id===branch)?.name||''):'كل الفروع';
-  const daySalesArr=sales.filter(s=>s.sale_date===date && (!branch||s.location_id===branch));
+  const isRange = from<to;
+  const inR = d => !!d && d>=from && d<=to;
+  const daySalesArr=sales.filter(s=>inR(s.sale_date) && (!branch||s.location_id===branch));
   const salesById={}; daySalesArr.forEach(s=>salesById[s.id]=s);
   const salesPay=dailyCashEmpty(), expensesPay=dailyCashEmpty(), customerPay=dailyCashEmpty(), supplierPay=dailyCashEmpty(), refundsPay=dailyCashEmpty();
   Object.values(salesById).forEach(sl=>{
@@ -4261,14 +4273,14 @@ function getDailyCashData(opts={}){
     else if(Number(sl.paid_amount||0)>0) dailyCashAdd(salesPay,sl.payment_method,Math.abs(Number(sl.paid_amount||0)));
   });
   const dayExpenses=expenses.filter(e=>{
-    if(e.expense_date!==date) return false;
+    if(!inR(e.expense_date)) return false;
     const a=financeAccounts.find(x=>x.id===e.account_id); const eloc=e.location_id||a?.location_id||'';
     return !branch || eloc===branch;
   });
   dayExpenses.forEach(e=>dailyCashAdd(expensesPay,dailyCashMethodFromAccount(e.account_id),e.amount));
   const dayCustomerPayMoves=[], daySupplierPayMoves=[];
   let settlementShortage=0, settlementSurplus=0;
-  financeMovements.filter(m=>m.movement_date===date).forEach(m=>{
+  financeMovements.filter(m=>inR(m.movement_date)).forEach(m=>{
     const a=financeAccounts.find(x=>x.id===m.account_id); if(branch && a?.location_id!==branch) return;
     const method=dailyCashMethodFromAccount(m.account_id);
     if(m.movement_type==='customer_payment' && m.direction==='in'){ dailyCashAdd(customerPay,method,m.amount); dayCustomerPayMoves.push({m,method}); }
@@ -4277,15 +4289,24 @@ function getDailyCashData(opts={}){
     if(m.movement_type==='cash_shortage' && m.direction==='out') settlementShortage+=Number(m.amount||0);
     if(m.movement_type==='cash_surplus' && m.direction==='in') settlementSurplus+=Number(m.amount||0);
   });
-  const dayReturns=saleReturns.filter(r=>r.return_date===date && (!branch||r.location_id===branch));
+  const dayReturns=saleReturns.filter(r=>inR(r.return_date) && (!branch||r.location_id===branch));
   dayReturns.forEach(r=>{
-    // Only count returns not already reflected in finance movements to avoid double counting when movement exists.
     const hasMove=financeMovements.some(m=>m.reference_table==='pos_sale_returns' && m.reference_id===r.id && m.movement_type==='customer_refund');
     if(!hasMove && ['cash','card','bank_transfer'].includes(r.refund_method)) dailyCashAdd(refundsPay,r.refund_method,r.total);
   });
   const cashRemaining=salesPay.cash + customerPay.cash + settlementSurplus - expensesPay.cash - supplierPay.cash - refundsPay.cash - settlementShortage;
   const invoiceCount=Object.keys(salesById).length;
-  // ---- تفاصيل إضافية للتقرير المفصّل ----
+  // تفصيل يومي للفترات (صف لكل يوم)
+  let days=[];
+  if(isRange){
+    const dm={};
+    const ed=dt=>{ if(!dt) return null; const dd=String(dt).slice(0,10); if(!inR(dd)) return null; if(!dm[dd]) dm[dd]={date:dd,invoiceCount:0,salesTotal:0,cashIn:0,cashOut:0}; return dm[dd]; };
+    daySalesArr.forEach(s=>{ const D=ed(s.sale_date); if(!D)return; D.invoiceCount++; D.salesTotal+=Number(s.total||0); const rows=salePayments.filter(p=>p.sale_id===s.id); let cin=0; if(rows.length) rows.forEach(p=>{if(p.payment_method==='cash')cin+=Number(p.amount||0);}); else if(Number(s.paid_amount||0)>0&&s.payment_method==='cash') cin+=Math.abs(Number(s.paid_amount||0)); D.cashIn+=cin; });
+    dayExpenses.forEach(e=>{ const D=ed(e.expense_date); if(!D)return; if(dailyCashMethodFromAccount(e.account_id)==='cash') D.cashOut+=Number(e.amount||0); });
+    financeMovements.filter(m=>inR(m.movement_date)).forEach(m=>{ const a=financeAccounts.find(x=>x.id===m.account_id); if(branch&&a?.location_id!==branch)return; if(dailyCashMethodFromAccount(m.account_id)!=='cash')return; const D=ed(m.movement_date); if(!D)return; if(m.movement_type==='customer_payment'&&m.direction==='in')D.cashIn+=Number(m.amount||0); if((m.movement_type==='supplier_payment'&&m.direction==='out')||(m.movement_type==='customer_refund'&&m.direction==='out')||(m.movement_type==='cash_shortage'&&m.direction==='out'))D.cashOut+=Number(m.amount||0); if(m.movement_type==='cash_surplus'&&m.direction==='in')D.cashIn+=Number(m.amount||0); });
+    days=Object.values(dm).sort((a,b)=>a.date<b.date?-1:1);
+    days.forEach(D=>D.cashRemaining=D.cashIn-D.cashOut);
+  }
   const totalSales=daySalesArr.reduce((a,s)=>a+Number(s.total||0),0);
   const totalDiscounts=daySalesArr.reduce((a,s)=>a+Number(s.discount||0),0);
   const creditSales=daySalesArr.reduce((a,s)=>a+Math.max(0,Number(s.balance_due||0)),0);
@@ -4304,8 +4325,14 @@ function getDailyCashData(opts={}){
   if(saved){ savedStatus=(saved.updated_at&&saved.created_at&&saved.updated_at!==saved.created_at)?'محفوظ — تم التحديث بموافقة المدير':'محفوظ'; }
   const countedCash=Number(localStorage.getItem(dailyCashCountedKey(date,branch))||0)||0;
   const difference=countedCash-cashRemaining;
-  return {date,branch,branchName,salesPay,expensesPay,customerPay,supplierPay,refundsPay,cashRemaining,invoiceCount,
-    salesSummary,invoices,expensesByCategory,refunds,customerPayments,supplierPayments,nonCash,saved,savedStatus,countedCash,difference,settlementShortage,settlementSurplus};
+  return {date,dateFrom:from,dateTo:to,isRange,branch,branchName,salesPay,expensesPay,customerPay,supplierPay,refundsPay,cashRemaining,invoiceCount,
+    salesSummary,invoices,expensesByCategory,refunds,customerPayments,supplierPayments,nonCash,saved,savedStatus,countedCash,difference,settlementShortage,settlementSurplus,days};
+}
+function setCashPeriod(n){
+  const to=new Date(); const from=new Date(); from.setDate(from.getDate()-(n-1));
+  if(q('dailyCashDateTo')) q('dailyCashDateTo').value=to.toISOString().slice(0,10);
+  if(q('dailyCashDateFrom')) q('dailyCashDateFrom').value=from.toISOString().slice(0,10);
+  renderDailyCashReport();
 }
 function updateDailyCashDifference(){
   const inp=q('dailyCashCounted'); if(!inp)return;
@@ -4336,7 +4363,7 @@ function renderDailyCashReport(){
     <div><div style="font-size:18px;font-weight:900;color:var(--blue)">${esc(APP_CONFIG.businessName)}</div><div class="muted">تقرير حالة الخزينة اليومية — إغلاق اليوم</div></div>
     <div class="mini" style="text-align:left;line-height:1.9">
       <div>الفرع: <b>${esc(d.branchName)}</b></div>
-      <div>التاريخ: <b>${esc(d.date)}</b></div>
+      ${(d.isRange?('<div>الفترة: <b>'+esc(d.dateFrom)+' ← '+esc(d.dateTo)+'</b></div>'):('<div>التاريخ: <b>'+esc(d.date)+'</b></div>'))}
       <div>المسؤول: <b>${esc(appUser?.identifier||'')}</b></div>
       <div>وقت التوليد: <b>${esc(generated)}</b></div>
       <div>الحالة: <b class="${d.saved?'stock-positive':''}">${esc(d.savedStatus)}</b></div>
@@ -4353,6 +4380,12 @@ function renderDailyCashReport(){
   const outSec=sectionCard('المصاريف (حسب طريقة الدفع)', `<div class="table-scroll"><table><thead><tr><th>البيان</th><th>المبلغ</th></tr></thead><tbody>${outRows||'<tr><td colspan="2">لا توجد مصاريف.</td></tr>'}<tr style="background:var(--table-head)"><td><b>مجموع المصاريف</b></td><td><b>${money(totalOut)}</b></td></tr></tbody></table></div>`);
   // الباقي كاش
   const baqi=`<div class="panel" style="padding:14px;margin-top:12px;border:2px solid color-mix(in srgb,var(--blue) 30%,var(--border))"><div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><div><h2 style="font-size:16px;margin:0 0 4px">الباقي كاش (النقد فقط)</h2><div class="muted">البطاقة والتحويل لا يدخلان في الباقي الكاشي — فقط النقد الداخل ناقص النقد الخارج.</div></div><div class="num ${cashCls(d.cashRemaining)}" style="font-size:30px">${money(d.cashRemaining)} ${cur}</div></div></div>`;
+  if(d.isRange){
+    const dayRows=d.days.map(D=>`<tr><td class="ltr">${esc(D.date)}</td><td>${D.invoiceCount}</td><td>${money(D.salesTotal)}</td><td>${money(D.cashIn)}</td><td>${money(D.cashOut)}</td><td><b class="${cashCls(D.cashRemaining)}">${money(D.cashRemaining)}</b></td></tr>`);
+    const daySec=sectionCard('تفصيل يومي ('+d.days.length+' يوم)', tbl(['التاريخ','عدد الفواتير','إجمالي المبيعات','الكاش الداخل','الكاش الخارج','المتبقي كاش'],dayRows));
+    q('dailyCashReportBody').innerHTML=header+inSec+outSec+baqi+daySec+`<p class="muted" style="margin-top:10px">لعرض تفاصيل كاملة (فواتير/دفعات/تسوية) اجعل «من» = «إلى» ليوم واحد.</p>`;
+    renderDailyCashClosings(); return;
+  }
   // التسوية النهائية
   const settlement=`<div class="panel" style="padding:14px;margin-top:12px"><h2 style="font-size:16px;margin:0 0 10px">التسوية النهائية</h2>
     <div class="row" style="gap:16px;flex-wrap:wrap;align-items:end">
@@ -4409,6 +4442,37 @@ function dailyCashPrintHtml(d, meta={}){
   const cpRows=(d.customerPayments||[]).map(p=>`<tr><td>${esc(p.customer)}</td><td>${esc(M[p.method]||p.method)}</td><td><b>${money(p.amount)}</b></td><td>${esc(p.notes||'')}</td></tr>`);
   const spRows=(d.supplierPayments||[]).map(p=>`<tr><td>${esc(p.supplier)}</td><td>${esc(M[p.method]||p.method)}</td><td><b>${money(p.amount)}</b></td><td>${esc(p.notes||'')}</td></tr>`);
   const T=(title,head,rows)=>`<h3>${title}</h3><table><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')||`<tr><td colspan="${head.length}" class="empty">لا توجد بيانات.</td></tr>`}</tbody></table>`;
+  if(d.isRange){
+    const dayRows=(d.days||[]).map(D=>`<tr><td>${esc(D.date)}</td><td>${D.invoiceCount}</td><td>${money(D.salesTotal)}</td><td>${money(D.cashIn)}</td><td>${money(D.cashOut)}</td><td class="${cashCls(D.cashRemaining)}">${money(D.cashRemaining)}</td></tr>`);
+    const periodLabel=esc(d.dateFrom)+' ← '+esc(d.dateTo);
+    return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير الخزينة للفترة — ${esc(d.branchName)}</title>
+<style>
+*{box-sizing:border-box}
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap');
+body{font-family:'Cairo',Tahoma,Arial,sans-serif;color:#111;margin:20px;line-height:1.5}
+.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1d4ed8;padding-bottom:10px;margin-bottom:8px}
+.head .title{font-size:22px;font-weight:800;color:#1d4ed8}.head .sub{color:#555;font-size:12px}
+.meta{text-align:left;font-size:12px;line-height:1.8}.meta b{color:#111}
+h3{font-size:14px;margin:12px 0 4px;border-inline-start:4px solid #1d4ed8;padding-inline-start:8px}
+table{width:100%;border-collapse:collapse;margin-top:3px;font-size:11.5px}
+th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:right}th{background:#e8f0ff;font-weight:700}
+tr.totalrow td{background:#f1f5f9;font-weight:800}
+td.pos{color:#087f5b;font-weight:800}td.neg{color:#dc2626;font-weight:800}
+.baqi{border:2px solid #1d4ed8;border-radius:12px;padding:10px 14px;margin:10px 0;display:flex;justify-content:space-between;align-items:center}
+.baqi .lbl{font-size:14px;font-weight:800;color:#1d4ed8}.baqi .amt{font-size:26px;font-weight:900}
+.small{font-size:11px;color:#777}
+@media print{@page{size:A4;margin:8mm}}
+</style></head><body>
+<div class="head"><div><div class="title">${esc(APP_CONFIG.businessName)}</div><div class="sub">تقرير حالة الخزينة للفترة</div></div>
+<div class="meta">الفرع: <b>${esc(d.branchName)}</b><br>الفترة: <b>${periodLabel}</b><br>عدد الأيام: <b>${(d.days||[]).length}</b><br>المسؤول: <b>${esc(responsible)}</b><br>وقت التوليد: <b>${esc(generated)}</b></div></div>
+<h3>المداخيل (حسب طريقة الدفع)</h3><table><thead><tr><th>البيان</th><th>المبلغ</th></tr></thead><tbody>${inRows||'<tr><td colspan="2">لا توجد مداخيل.</td></tr>'}</tbody></table>
+<h3>المصاريف (حسب طريقة الدفع)</h3><table><thead><tr><th>البيان</th><th>المبلغ</th></tr></thead><tbody>${outRows||'<tr><td colspan="2">لا توجد مصاريف.</td></tr>'}</tbody></table>
+<div class="baqi"><div class="lbl">الباقي كاش للفترة (النقد فقط)</div><div class="amt ${cashCls(d.cashRemaining)}">${money(d.cashRemaining)} ${cur}</div></div>
+<h3>تفصيل يومي</h3><table><thead><tr><th>التاريخ</th><th>عدد الفواتير</th><th>إجمالي المبيعات</th><th>الكاش الداخل</th><th>الكاش الخارج</th><th>المتبقي كاش</th></tr></thead><tbody>${dayRows.join('')||'<tr><td colspan="6">لا توجد بيانات.</td></tr>'}</tbody></table>
+<div class="small" style="margin-top:12px">تقرير مختصر للفترة — لتفاصيل يوم واحد اجعل «من» = «إلى».</div>
+<div class="no-print" style="text-align:center;margin-top:14px"><button onclick="window.print()" style="background:#1d4ed8;color:#fff;border:0;border-radius:10px;padding:9px 22px;font:inherit;font-weight:700;cursor:pointer">طباعة</button></div>
+</body></html>`;
+  }
   return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير الخزينة اليومية — ${esc(d.branchName)} ${esc(d.date)}</title>
 <style>
 *{box-sizing:border-box}
@@ -4433,7 +4497,7 @@ td.empty{text-align:center;color:#94a3b8;padding:12px}
 @media print{@page{size:A4;margin:10mm}.no-print{display:none}}
 </style></head><body>
 <div class="head"><div><div class="title">${esc(APP_CONFIG.businessName)}</div><div class="sub">تقرير حالة الخزينة اليومية — إغلاق اليوم</div></div>
-<div class="meta">الفرع: <b>${esc(d.branchName)}</b><br>التاريخ: <b>${esc(d.date)}</b><br>المسؤول: <b>${esc(responsible)}</b><br>وقت التوليد: <b>${esc(generated)}</b><br>الحالة: <span class="badge">${esc(savedStatus)}</span></div></div>
+<div class="meta">الفرع: <b>${esc(d.branchName)}</b><br>${d.isRange?('الفترة: <b>'+esc(d.dateFrom)+' ← '+esc(d.dateTo)+'</b>'):('التاريخ: <b>'+esc(d.date)+'</b>')}<br>المسؤول: <b>${esc(responsible)}</b><br>وقت التوليد: <b>${esc(generated)}</b><br>الحالة: <span class="badge">${esc(savedStatus)}</span></div></div>
 <h3>المداخيل (حسب طريقة الدفع)</h3><table><thead><tr><th>البيان</th><th>المبلغ</th></tr></thead><tbody>${inRows||'<tr><td colspan="2" class="empty">لا توجد مداخيل.</td></tr>'}</tbody></table>
 <h3>المصاريف (حسب طريقة الدفع)</h3><table><thead><tr><th>البيان</th><th>المبلغ</th></tr></thead><tbody>${outRows||'<tr><td colspan="2" class="empty">لا توجد مصاريف.</td></tr>'}</tbody></table>
 <div class="baqi"><div><div class="lbl">الباقي كاش (النقد فقط)</div><div class="small">البطاقة والتحويل لا يدخلان في الباقي الكاشي — فقط النقد الداخل ناقص النقد الخارج.</div></div><div class="amt ${cashCls(d.cashRemaining)}">${money(d.cashRemaining)} ${cur}</div></div>
@@ -4472,7 +4536,7 @@ function renderDailyCashClosings(){
   body.innerHTML=(dailyCashClosings||[]).slice(0,80).map(r=>`<tr><td>${esc(r.closing_date)}</td><td>${esc(r.branch_name||locations.find(l=>l.id===r.branch_id)?.name||'')}</td><td>${esc(r.responsible_identifier||r.created_by||'')}</td><td>${Number(r.invoice_count||0)}</td><td><b class="${Number(r.cash_remaining||0)>=0?'stock-positive':'stock-negative'}">${money(r.cash_remaining)}</b></td><td>${esc((r.created_at||'').replace('T',' ').slice(0,19))}</td><td>${esc(r.notes||'')}</td><td><button class="btn secondary" type="button" onclick="printSavedDailyCashClosing('${r.id}')">طباعة</button></td></tr>`).join('')||'<tr><td colspan="8">لا توجد إغلاقات محفوظة.</td></tr>';
 }
 async function saveDailyCashClosing(){
-  const d=getDailyCashData();
+  const d=getDailyCashData({date:q('dailyCashDateTo')?.value});
   if(!d.branch){toast('اختر فرعًا محددًا قبل حفظ الإغلاق','warn');return;}
   const existing=(dailyCashClosings||[]).find(x=>x.branch_id===d.branch && x.closing_date===d.date);
   if(existing && !(await requestSupervisorApproval('تعديل إغلاق خزينة محفوظ',`${d.branchName} - ${d.date}`))) return;
@@ -4496,7 +4560,7 @@ function printSavedDailyCashClosing(id){
 }
 
 async function settleDailyCashDifference(){
-  const d=getDailyCashData();
+  const d=getDailyCashData({date:q('dailyCashDateTo')?.value});
   const diff=Number(d.difference||0);
   if(Math.abs(diff)<0.009){toast('لا يوجد فرق للتسوية — المعدود يطابق المتوقع','warn');return;}
   if(!d.branch){toast('اختر فرعاً محدداً قبل التسوية','warn');return;}
@@ -4537,7 +4601,7 @@ function printDailyCashReport(){
 }
 
 function prepareDailyCashTransfer(){
-  const d=getDailyCashData();
+  const d=getDailyCashData({date:q('dailyCashDateTo')?.value});
   if(!(d.cashRemaining>0)){toast('لا يوجد متبقي كاش للتحويل','warn');return;}
   openTab('finance');
   const cash=financeAccounts.find(a=>a.account_type==='cash' && (!d.branch || a.location_id===d.branch));
@@ -4960,7 +5024,7 @@ function renderStatusBar(){
 }
 setInterval(renderStatusBar,60000);
 
-function setToday(){const d=new Date().toISOString().slice(0,10); q('paymentDate').value=d; q('purchaseDate').value=d; q('transferDate').value=d; q('saleDate').value=d; if(q('proformaDate')) q('proformaDate').value=d; q('customerPaymentDate').value=d; if(q('dailyCashDate')) q('dailyCashDate').value=d; if(q('expenseLocation')&&appUser?.branch_id&&!q('expenseLocation').value) q('expenseLocation').value=appUser.branch_id; ['financeTransferDate','expenseDate','salaryPaymentDate'].forEach(id=>{if(q(id))q(id).value=d}); if(q('reportTo')) q('reportTo').value=d; if(q('reportFrom') && !q('reportFrom').value){const first=new Date(); first.setDate(1); q('reportFrom').value=first.toISOString().slice(0,10)}}
+function setToday(){const d=new Date().toISOString().slice(0,10); q('paymentDate').value=d; q('purchaseDate').value=d; q('transferDate').value=d; q('saleDate').value=d; if(q('proformaDate')) q('proformaDate').value=d; q('customerPaymentDate').value=d; if(q('dailyCashDateFrom')) q('dailyCashDateFrom').value=d; if(q('dailyCashDateTo')) q('dailyCashDateTo').value=d; if(q('expenseLocation')&&appUser?.branch_id&&!q('expenseLocation').value) q('expenseLocation').value=appUser.branch_id; ['financeTransferDate','expenseDate','salaryPaymentDate'].forEach(id=>{if(q(id))q(id).value=d}); if(q('reportTo')) q('reportTo').value=d; if(q('reportFrom') && !q('reportFrom').value){const first=new Date(); first.setDate(1); q('reportFrom').value=first.toISOString().slice(0,10)}}
 initBranding(); fillSettingsForm(); initConnectivity(); initNavGroups(); setupDecimalInputs(); setupSaleTabFlow(); setupLongPickers(); setTimeout(toggleFinancePaymentMethods,0); setToday(); q('saleLocation')?.addEventListener('change',function(){ if(this.value) localStorage.setItem('posLastSaleLocation',this.value); }); try{if(localStorage.getItem('posNavCollapsed')==='1') document.body.classList.add('nav-collapsed');}catch(e){} renderStatusBar(); renderGDriveStatus(); addTransferRow(); if(q('proformaItemsBody')) addProformaRow(); ensureSaleInvoiceNo(true); updateAuthUI(); loadLoginBranches(); setTimeout(tryRestoreActiveSaleDraft,600); if(appUser?.id && authSession?.access_token){loadAll().then(async()=>{await ensureRoleAfterLogin(); updateAuthUI(); applyPermissions(); renderCustomers();}).catch(e=>{console.error(e); logoutPOS(); toast('انتهت الجلسة، سجل الدخول مرة أخرى','warn')});}else{q('loginIdentifier')?.focus();}
 </script>
 </body>
