@@ -1204,6 +1204,16 @@
 
       <section id="settings" class="section">
         <div class="panel">
+          <h2>النسخ الاحتياطي والعمل دون اتصال</h2>
+          <p class="muted">للإنترنت الضعيف: نزّل نسخة احتياطية من كل البيانات واحفظها على الجهاز، ثم استعدها على أي جهاز لتعمل المنظومة فوراً من البيانات المحفوظة دون انتظار التحميل. ملاحظة: البيع والحفظ لا يزالان يحتاجان اتصالاً للوصول إلى الخادم.</p>
+          <div class="row" style="margin-top:10px">
+            <button class="btn" type="button" onclick="downloadBackup()">⬇️ تنزيل نسخة احتياطية</button>
+            <label class="btn secondary" style="cursor:pointer">⬆️ استعادة من نسخة احتياطية<input type="file" accept="application/json,.json" style="display:none" onchange="restoreBackup(this)"></label>
+            <button class="btn secondary" type="button" onclick="loadAll()">🔄 تحديث من الخادم</button>
+          </div>
+          <p class="mini" style="margin-top:8px">للأفضل: ثبّت التطبيق كـ PWA (إضافة إلى الشاشة الرئيسية / Install) ليفتح فوراً دون انتظار الإنترنت.</p>
+        </div>
+        <div class="panel">
           <h2>الإعدادات</h2>
           <p class="muted">إعدادات سريعة محفوظة على هذا الجهاز. يمكن تغيير الاسم والعملة وحد المخزون المنخفض بدون تعديل الكود.</p>
           <form class="form" id="settingsForm">
@@ -1640,7 +1650,43 @@ function initConnectivity(){
   setSyncState(navigator.onLine?'online':'offline',navigator.onLine?'متصل مع Supabase':'غير متصل');
 }
 
+function downloadBackup(){
+  const data={_meta:{app:'benamor-pos',exported_at:new Date().toISOString(),branch:appUser?.branch_name||'',user:appUser?.identifier||''},
+    locations,suppliers,supplier_ledger:ledger,supplier_payments:payments,stock,purchases,purchaseItems,products,transfers,
+    sales,saleItems,salePayments,proformas,proformaItems,saleReturns,saleReturnItems,stockMovements,customers,customerLedger,
+    userRoles,financeAccounts,financeMovements,dailyCashClosings,expenseCategories,expenses,employees,salaryPayments,
+    settings:{businessName:APP_CONFIG.businessName,tagline:APP_CONFIG.tagline,currency:APP_CONFIG.currency,lowStockThreshold:APP_CONFIG.lowStockThreshold}};
+  const blob=new Blob([JSON.stringify(data)],{type:'application/json'});
+  const url=URL.createObjectURL(blob); const a=document.createElement('a');
+  a.href=url; a.download=`pos-backup-${new Date().toISOString().slice(0,10)}-${(appUser?.branch_name||'branch').replace(/\s+/g,'_')}.json`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),3000);
+  toast('تم تنزيل النسخة الاحتياطية','success');
+}
+function restoreBackup(input){
+  const file=input.files?.[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      const data=JSON.parse(reader.result);
+      const cache={saved_at:new Date().toISOString(),
+        locations:data.locations||[],suppliers:data.suppliers||[],stock:data.stock||[],
+        purchases:data.purchases||[],purchaseItems:data.purchaseItems||[],products:data.products||[],
+        transfers:data.transfers||[],sales:data.sales||[],saleItems:data.saleItems||[],
+        salePayments:data.salePayments||[],customers:data.customers||[],customerLedger:data.customerLedger||[],
+        userRoles:data.userRoles||[],financeAccounts:data.financeAccounts||[],financeMovements:data.financeMovements||[],
+        expenseCategories:data.expenseCategories||[],expenses:data.expenses||[],dailyCashClosings:data.dailyCashClosings||[]};
+      localStorage.setItem(ESSENTIAL_CACHE_KEY,JSON.stringify(cache));
+      applyEssentialCache(cache);
+      toast('تمت استعادة النسخة الاحتياطية محليًا وعرضها. عند توفّر الاتصال سيتم تحديثها تلقائيًا من الخادم.','success');
+    }catch(e){console.error(e);toast('ملف النسخة الاحتياطية غير صالح','error')}
+    input.value='';
+  };
+  reader.onerror=()=>{toast('تعذّر قراءة الملف','error'); input.value='';};
+  reader.readAsText(file);
+}
 async function loadAll(){
+  // على الإنترنت الضعيف: اعرض آخر بيانات محفوظة فوراً ثم حدّث من الخادم بالخلفية
+  if(!products.length){ const _c=loadEssentialCache(); if(_c) applyEssentialCache(_c); }
   try{
     showLoading(true);
     [locations, suppliers, ledger, payments, stock, purchases, purchaseItems, products, transfers, sales, saleItems, salePayments, proformas, proformaItems, saleReturns, saleReturnItems, stockMovements, customers, customerLedger, userRoles, financeAccounts, financeMovements, dailyCashClosings, expenseCategories, expenses, employees, salaryPayments] = await Promise.all([
