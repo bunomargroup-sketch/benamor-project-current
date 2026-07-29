@@ -638,7 +638,7 @@
           <div class="tools">
             <h2>قاعدة المنتجات</h2>
             <div class="row">
-              <input id="productSearch" placeholder="بحث بالكود، الاسم، الماركة، اللون، المورد..." oninput="renderProducts()" style="max-width:360px">
+              <input id="productSearch" placeholder="بحث بالكود، الاسم، الماركة، اللون، المورد..." oninput="debounceRenderProducts()" style="max-width:360px">
               <select id="productCategoryFilter" onchange="renderProducts()" style="min-width:170px"></select>
               <select id="productBrandFilter" onchange="renderProducts()" style="min-width:150px"></select>
               <select id="productColorFilter" onchange="renderProducts()" style="min-width:140px"></select>
@@ -669,7 +669,7 @@
               </div>
               <div class="product-bottom-bar">
                 <b>بحث</b>
-                <input class="grow" id="productBottomSearch" placeholder="بحث سريع داخل المنتجات..." oninput="q('productSearch').value=this.value;renderProducts()">
+                <input class="grow" id="productBottomSearch" placeholder="بحث سريع داخل المنتجات..." oninput="q('productSearch').value=this.value;debounceRenderProducts()">
                 <button class="btn secondary" type="button" onclick="viewSelectedProduct()">مشاهدة</button>
                 <button class="btn secondary" type="button" onclick="editSelectedProduct()">تعديل</button><button class="btn secondary" type="button" onclick="duplicateSelectedProduct()">نسخ</button>
                 <button class="btn secondary" type="button" onclick="openSelectedProductMovements()">الحركات</button>
@@ -1716,6 +1716,7 @@ function applyEssentialCache(c){
   if(!c) return false;
   locations=c.locations||[]; suppliers=c.suppliers||[]; stock=c.stock||[]; purchases=c.purchases||[]; purchaseItems=c.purchaseItems||[]; products=c.products||[]; transfers=c.transfers||[]; sales=c.sales||[]; saleItems=c.saleItems||[]; salePayments=c.salePayments||[]; customers=c.customers||[]; customerLedger=c.customerLedger||[]; userRoles=c.userRoles||[]; financeAccounts=c.financeAccounts||[]; financeMovements=c.financeMovements||[]; expenseCategories=c.expenseCategories||[]; expenses=c.expenses||[]; dailyCashClosings=c.dailyCashClosings||[];
   ['productCategoryFilter','productBrandFilter','productColorFilter','productSupplierFilter','stockCategoryFilter','stockBrandFilter','stockSupplierFilter'].forEach(id=>{if(q(id)) q(id).dataset.ready='';});
+  buildProductCostIndex(); buildProductSearchIndex();
   renderAll();
   setSyncState(navigator.onLine?'cache':'offline',`بيانات محفوظة محليًا ${c.saved_at?('من '+c.saved_at.replace('T',' ').slice(0,16)):''}`);
   return true;
@@ -1856,7 +1857,7 @@ async function loadAll(){
       apiAll('pos_salary_payments','?select=*&order=payment_date.desc,created_at.desc&limit=100').catch(e=>{console.warn('salary payments not setup yet',e); return []})
     ]);
     ['productCategoryFilter','productBrandFilter','productColorFilter','productSupplierFilter','stockCategoryFilter','stockBrandFilter','stockSupplierFilter'].forEach(id=>{if(q(id)) q(id).dataset.ready='';});
-    renderAll(); saveEssentialCache(); setSyncState('online','متصل - تم تحديث البيانات'); gDriveMaybeAuto();
+    buildProductCostIndex(); buildProductSearchIndex(); renderAll(); saveEssentialCache(); setSyncState('online','متصل - تم تحديث البيانات'); gDriveMaybeAuto();
   }catch(e){ console.error(e); const used=applyEssentialCache(loadEssentialCache()); if(used) toast('الاتصال ضعيف: تم استعمال آخر بيانات محفوظة','warn'); else toast('خطأ: '+e.message+' - لا توجد بيانات محفوظة محليًا'); }
   finally{showLoading(false);window.__busy=false}
 }
@@ -2134,6 +2135,9 @@ function selectProductCategory(cat){
   renderProducts();
 }
 
+function buildProductSearchIndex(){ for(const p of products){ if(p && p._hay===undefined) p._hay=normText(productSearchFields(p).join(' ')); } }
+let _renderProductsTimer=null;
+function debounceRenderProducts(){ clearTimeout(_renderProductsTimer); _renderProductsTimer=setTimeout(renderProducts,180); }
 function renderProducts(){
   const filterDefs=[['productCategoryFilter','category','كل التصنيفات'],['productBrandFilter','brand','كل الماركات'],['productColorFilter','color','كل الألوان'],['productSupplierFilter','supplier_name','كل الموردين']];
   filterDefs.forEach(([id,key,label])=>{const el=q(id); if(el && !el.dataset.ready){const vals=[...new Set(products.map(p=>p[key]).filter(Boolean))].sort(); el.innerHTML=`<option value="">${label}</option>`+vals.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join(''); el.dataset.ready='1';}});
@@ -2141,8 +2145,10 @@ function renderProducts(){
   const term=(q('productSearch')?.value||'').trim().toLowerCase();
   const cat=q('productCategoryFilter')?.value||'', brand=q('productBrandFilter')?.value||'', color=q('productColorFilter')?.value||'', supplier=q('productSupplierFilter')?.value||'';
   renderProductCategoryTree(cat);
+  if(products.length && products[0]._hay===undefined) buildProductSearchIndex();
+  const normTerm=normText(term);
   const rows=products.filter(p=>{
-    return (!cat || p.category===cat) && (!brand || p.brand===brand) && (!color || p.color===color) && (!supplier || p.supplier_name===supplier) && smartMatch(term, productSearchFields(p));
+    return (!cat || p.category===cat) && (!brand || p.brand===brand) && (!color || p.color===color) && (!supplier || p.supplier_name===supplier) && (!normTerm || (p._hay||'').includes(normTerm));
   });
   const productCols=['product_no','code','name','brand','color','barcode','supplier_name','category','purchase_price','retail_price','margin_value','margin_pct','reorder_point','stock_11_june','stock_sarraj','stock_janzour','total_stock'];
   const key=productCols[productSortIndex]||'total_stock';
@@ -4132,20 +4138,23 @@ function inDateRange(date, from, to){
   if(to && date > to) return false;
   return true;
 }
+let productCostCache=new Map();
+function buildProductCostIndex(){
+  productCostCache=new Map();
+  const acc=new Map();
+  for(const it of (purchaseItems||[])){ const q=Number(it.qty||0); if(q>0){ const k=String(it.product_code||'').trim().toLowerCase(); if(!k) continue; const o=acc.get(k); if(o){o.qty+=q; o.total+=Number(it.line_total||0);} else acc.set(k,{qty:q,total:Number(it.line_total||0)}); } }
+  for(const [k,o] of acc){ if(o.qty>0){ const avg=o.total/o.qty; if(avg>0) productCostCache.set(k,avg); } }
+}
 function productCost(code){
   const key=String(code||'').split('|')[0].trim().toLowerCase();
   if(!key) return 0;
-  const rows=(purchaseItems||[]).filter(x=>String(x.product_code||'').trim().toLowerCase()===key && Number(x.qty||0)>0);
-  const qty=rows.reduce((a,x)=>a+Number(x.qty||0),0);
-  if(qty>0){
-    const total=rows.reduce((a,x)=>a+Number(x.line_total||0),0);
-    const avg=total/qty;
-    if(avg>0) return avg;
-  }
+  if(productCostCache.has(key)) return productCostCache.get(key);
   const hist=(saleItems||[]).filter(x=>String(x.product_code||'').trim().toLowerCase()===key && Number(x.unit_cost_at_sale||0)>0);
-  if(hist.length){return hist.reduce((a,x)=>a+Number(x.unit_cost_at_sale||0),0)/hist.length;}
-  const p=products.find(x=>String(x.code||'').trim().toLowerCase()===key);
-  return Number(p?.purchase_price||p?.cost||0);
+  let result=0;
+  if(hist.length) result=hist.reduce((a,x)=>a+Number(x.unit_cost_at_sale||0),0)/hist.length;
+  if(!result){ const p=products.find(x=>String(x.code||'').trim().toLowerCase()===key); result=Number(p?.purchase_price||p?.cost||0); }
+  productCostCache.set(key,result||0);
+  return result||0;
 }
 
 function marginValue(code, price){return Number(price||0)-productCost(code)}
