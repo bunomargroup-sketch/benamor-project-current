@@ -450,6 +450,12 @@
 #sales .cashier-big-total{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3)}
 #sales .cashier-big-total span,#sales .cashier-big-total b{color:#fff}
 #sales .pos-invoice-head{border-radius:16px}
+#sales .sale-group{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:10px 12px;margin-bottom:10px}
+#sales .sale-group-title{font-size:13px;font-weight:800;color:#4f46e5;display:flex;align-items:center;gap:6px;margin-bottom:8px}
+#sales .sale-group-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end}
+#sales .sale-group-grid .wide{grid-column:span 2}
+#sales #saleLocation:disabled{opacity:.8;font-weight:800;color:var(--text);background:var(--accent-soft)}
+@media (max-width:900px){#sales .sale-group-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 #sales .barcode-input{background:linear-gradient(135deg,#eef2ff,#f5f3ff);border-color:#6366f1}
 /* سلسلة الإجراءات: أزرار ملوّنة */
 #sales .pos-action-rail .rail-btn{background:linear-gradient(135deg,#4f46e5,#6366f1);color:#fff;border:none;box-shadow:0 2px 8px rgba(79,70,229,.25);transition:transform .12s,filter .12s}
@@ -726,19 +732,32 @@
 
           <form id="saleForm" class="pos-sales-shell" novalidate>
             <div class="pos-invoice-head">
-              <div class="pos-head-grid">
-                <div><label>زبون موجود</label><select id="saleCustomer" onchange="renderSaleCustomerInfo();updateSaleTotal()"></select></div>
-                <div><label>رقم الفاتورة</label><input id="saleInvoiceNo" class="ltr" readonly tabindex="-1" placeholder="يتم توليده من قاعدة البيانات عند الحفظ"></div>
-                <div class="hidden"><label>فرع البيع</label><select id="saleLocation" required onchange="refreshSaleAvailability();renderSaleStockInfo();renderStatusBar()"></select></div>
-                <div><label>التاريخ</label><input id="saleDate" type="date" required></div>
-                <div class="hidden"><label>طريقة الدفع</label><select id="salePaymentMethod" onchange="updateSaleTotal()"><option value="cash">نقدي</option><option value="bank_transfer">تحويل مصرفي</option><option value="card">بطاقة</option><option value="mixed">مختلط</option><option value="credit">آجل / دين</option></select></div>
-                <div class="pos-currency hidden">العملة: <span style="margin-inline-start:6px">د.ل</span></div>
-                <div><label>امسح الباركود</label><input id="saleBarcodeInput" class="ltr barcode-input" placeholder="امسح الباركود ثم Enter" onkeydown="handleBarcodeKey(event)" oninput="handleBarcodeInput()"></div>
-                <div><label>الطباعة</label><select id="salePrintAfterSave"><option value="yes">اطبع بعد الحفظ</option><option value="no">حفظ بدون طباعة</option></select></div>
-                <div><label>أو اسم زبون جديد</label><input id="saleNewCustomerName" placeholder="مطلوب إذا يوجد دين"></div>
-                <div><label>هاتف الزبون</label><input id="saleNewCustomerPhone" class="ltr" placeholder="اختياري"></div>
-                <div class="wide"><label>ملاحظات</label><input id="saleNotes" placeholder="اختياري"></div>
+              <div class="sale-group">
+                <div class="sale-group-title"><i class="ti ti-receipt"></i> بيانات الفاتورة</div>
+                <div class="sale-group-grid">
+                  <div><label>رقم الفاتورة</label><input id="saleInvoiceNo" class="ltr" readonly tabindex="-1" placeholder="يتم توليده عند الحفظ"></div>
+                  <div><label>التاريخ</label><input id="saleDate" type="date" required></div>
+                  <div><label>الفرع (من الدخول)</label><select id="saleLocation" required onchange="refreshSaleAvailability();renderSaleStockInfo();renderStatusBar()"></select></div>
+                  <div><label>الطباعة</label><select id="salePrintAfterSave"><option value="yes">اطبع بعد الحفظ</option><option value="no">حفظ بدون طباعة</option></select></div>
+                </div>
               </div>
+              <div class="sale-group">
+                <div class="sale-group-title"><i class="ti ti-user"></i> الزبون</div>
+                <div class="sale-group-grid">
+                  <div><label>زبون موجود</label><select id="saleCustomer" onchange="renderSaleCustomerInfo();updateSaleTotal()"></select></div>
+                  <div><label>أو اسم زبون جديد</label><input id="saleNewCustomerName" placeholder="مطلوب إذا يوجد دين"></div>
+                  <div><label>هاتف الزبون</label><input id="saleNewCustomerPhone" class="ltr" placeholder="اختياري"></div>
+                </div>
+              </div>
+              <div class="sale-group">
+                <div class="sale-group-title"><i class="ti ti-barcode"></i> الإدخال السريع</div>
+                <div class="sale-group-grid">
+                  <div><label>امسح الباركود</label><input id="saleBarcodeInput" class="ltr barcode-input" placeholder="امسح الباركود ثم Enter" onkeydown="handleBarcodeKey(event)" oninput="handleBarcodeInput()"></div>
+                  <div class="wide"><label>ملاحظات</label><input id="saleNotes" placeholder="اختياري"></div>
+                </div>
+              </div>
+              <div class="hidden"><label>طريقة الدفع</label><select id="salePaymentMethod" onchange="updateSaleTotal()"><option value="cash">نقدي</option><option value="bank_transfer">تحويل مصرفي</option><option value="card">بطاقة</option><option value="mixed">مختلط</option><option value="credit">آجل / دين</option></select></div>
+              <div class="pos-currency hidden">العملة: <span style="margin-inline-start:6px">د.ل</span></div>
             </div>
 
             <div class="pos-work-area">
@@ -1992,15 +2011,9 @@ function applyPermissions(){
   }
   const saleLoc=q('saleLocation');
   if(saleLoc){
-    const box=saleLoc.closest('div');
-    const canSelect=canSelectSaleBranch();
-    if(box) box.classList.toggle('hidden',!canSelect);
-    saleLoc.disabled=!canSelect;
-    if(canSelect){
-      if(!saleLoc.value && appUser?.branch_id) saleLoc.value=appUser.branch_id;
-    }else if(appUser?.branch_id){
-      saleLoc.value=appUser.branch_id;
-    }
+    // الفرع يُحدَّد من تسجيل الدخول فقط ولا يمكن تغييره عند البيع
+    saleLoc.disabled=true;
+    if(appUser?.branch_id) saleLoc.value=appUser.branch_id;
   }
   // Branch sellers are locked to their branch in sales screen.
   if(currentRole?.role==='seller_11' || currentRole?.role==='seller_sarraj'){
@@ -2215,7 +2228,7 @@ function loadPriceCheckerCart(id){
 }
 function openSaleProductPicker(){
   productPickerTarget='sale';
-  if(q('saleLocation') && appUser?.branch_id && !canSelectSaleBranch()) q('saleLocation').value=appUser.branch_id; if(!q('saleLocation').value){toast('اختر فرع البيع أولاً'); return;}
+  if(q('saleLocation') && appUser?.branch_id) q('saleLocation').value=appUser.branch_id; if(!q('saleLocation').value){toast('اختر فرع البيع أولاً'); return;}
   fillPickerSelect('salePickerCategory','category','كل التصنيفات');
   fillPickerSelect('salePickerBrand','brand','كل الماركات');
   fillPickerSelect('salePickerColor','color','كل الألوان');
@@ -2956,7 +2969,7 @@ async function ensureSaleCustomer(balanceDue){
 function resetSaleForm(){
   suppressSaleDraftSave=true; saleSupervisorApproved=false; sourcePriceCheckerCartId=null;
   editingSaleId=null; originalSale=null; originalSaleItems=[];
-  q('saleForm').reset(); if(q('saleLocation') && appUser?.branch_id && !canSelectSaleBranch()) q('saleLocation').value=appUser.branch_id; if(q('saleCashAmount')){q('saleCashAmount').value=0;q('saleBankAmount').value=0;q('saleCardAmount').value=0;} q('saleItemsBody').innerHTML=''; setToday(); ensureSaleInvoiceNo(true);
+  q('saleForm').reset(); if(q('saleLocation') && appUser?.branch_id) q('saleLocation').value=appUser.branch_id; if(q('saleCashAmount')){q('saleCashAmount').value=0;q('saleBankAmount').value=0;q('saleCardAmount').value=0;} q('saleItemsBody').innerHTML=''; setToday(); ensureSaleInvoiceNo(true);
   q('saleSubmitBtn').textContent='حفظ البيع'; q('saleCancelEditBtn').classList.add('hidden'); q('saleEditAlert')?.classList.add('hidden'); setActivePayInput(q('saleCashAmount')); renderSaleStockInfo(''); renderSaleCustomerInfo(); updateSaleTotal(); suppressSaleDraftSave=false; setTimeout(()=>q('saleBarcodeInput')?.focus(),50);
 }
 async function openSaleForEdit(id){
