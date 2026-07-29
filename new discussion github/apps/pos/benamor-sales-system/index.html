@@ -4147,7 +4147,7 @@ function renderDailyCashReport(){
   if(!q('dailyCashReportBody')) return;
   const d=getDailyCashData();
   const M=DAILY_METHOD_LABELS, cur=APP_CONFIG.currency;
-  const generated=new Date().toLocaleString('ar-LY',{dateStyle:'short',timeStyle:'second'});
+  const generated=new Date().toLocaleString('ar-LY',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
   const cashCls=n=>n>=0?'stock-positive':'stock-negative';
   const sectionCard=(title,bodyHTML)=>`<div class="panel" style="box-shadow:none;padding:14px;margin-top:12px"><h2 style="font-size:16px;margin:0 0 10px">${title}</h2>${bodyHTML}</div>`;
   const tbl=(head,rows)=>`<div class="table-scroll"><table><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')||`<tr><td colspan="${head.length}">لا توجد بيانات.</td></tr>`}</tbody></table></div>`;
@@ -4211,7 +4211,7 @@ function renderDailyCashReport(){
 function dailyCashPrintHtml(d, meta={}){
   const M=DAILY_METHOD_LABELS, cur=APP_CONFIG.currency;
   const responsible=meta.responsible!==undefined?meta.responsible:(appUser?.identifier||'');
-  const generated=meta.generated||new Date().toLocaleString('ar-LY',{dateStyle:'short',timeStyle:'second'});
+  const generated=meta.generated||new Date().toLocaleString('ar-LY',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
   const savedStatus=meta.savedStatus!==undefined?meta.savedStatus:(d.savedStatus||'غير محفوظ بعد');
   const notes=meta.notes!==undefined?meta.notes:'';
   const cashCls=n=>n>=0?'pos':'neg';
