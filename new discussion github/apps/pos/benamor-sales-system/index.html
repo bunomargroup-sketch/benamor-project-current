@@ -471,7 +471,9 @@
 #sales .add-row-strip{background:linear-gradient(135deg,#eef2ff,#e0e7ff);color:#4338ca;border-color:#c7d2fe}
 #sales .pos-items-card .tools h2{color:#4f46e5}
 /* فوتر الدفع اللاصق البارز */
-#sales .sale-finish-bar{position:sticky;bottom:46px;z-index:30;background:linear-gradient(120deg,#0f172a,#312e81);border:1px solid #4f46e5;border-radius:18px;padding:12px 16px;box-shadow:0 -8px 26px rgba(2,6,23,.28);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:14px}
+#sales .sale-finish-bar{position:fixed;left:14px;right:14px;bottom:44px;z-index:30;background:linear-gradient(120deg,#0f172a,#312e81);border:1px solid #4f46e5;border-radius:18px;padding:12px 16px;box-shadow:0 -8px 26px rgba(2,6,23,.28);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#sales #saleForm{padding-bottom:96px}
+#sales #saleFooterBranch{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);color:#fff;padding:7px 12px;border-radius:999px;font-weight:800;font-size:12px;white-space:nowrap}
 #sales .sale-finish-bar .finish-total{color:#fff}
 #sales .sale-finish-bar .finish-total span{color:rgba(226,232,240,.85)}
 #sales .sale-finish-bar .finish-total b{color:#fff;font-size:30px}
@@ -737,8 +739,6 @@
                 <div class="sale-group-grid">
                   <div><label>رقم الفاتورة</label><input id="saleInvoiceNo" class="ltr" readonly tabindex="-1" placeholder="يتم توليده عند الحفظ"></div>
                   <div><label>التاريخ</label><input id="saleDate" type="date" required></div>
-                  <div><label>الفرع (من الدخول)</label><select id="saleLocation" required onchange="refreshSaleAvailability();renderSaleStockInfo();renderStatusBar()"></select></div>
-                  <div><label>الطباعة</label><select id="salePrintAfterSave"><option value="yes">اطبع بعد الحفظ</option><option value="no">حفظ بدون طباعة</option></select></div>
                 </div>
               </div>
               <div class="sale-group">
@@ -753,9 +753,11 @@
                 <div class="sale-group-title"><i class="ti ti-barcode"></i> الإدخال السريع</div>
                 <div class="sale-group-grid">
                   <div><label>امسح الباركود</label><input id="saleBarcodeInput" class="ltr barcode-input" placeholder="امسح الباركود ثم Enter" onkeydown="handleBarcodeKey(event)" oninput="handleBarcodeInput()"></div>
-                  <div class="wide"><label>ملاحظات</label><input id="saleNotes" placeholder="اختياري"></div>
+                  <div><label>ملاحظات</label><input id="saleNotes" placeholder="اختياري"></div>
+                  <div><label>الطباعة</label><select id="salePrintAfterSave"><option value="yes">اطبع بعد الحفظ</option><option value="no">حفظ بدون طباعة</option></select></div>
                 </div>
               </div>
+              <div class="hidden"><label>فرع البيع</label><select id="saleLocation" required onchange="refreshSaleAvailability();renderSaleStockInfo();renderStatusBar()"></select></div>
               <div class="hidden"><label>طريقة الدفع</label><select id="salePaymentMethod" onchange="updateSaleTotal()"><option value="cash">نقدي</option><option value="bank_transfer">تحويل مصرفي</option><option value="card">بطاقة</option><option value="mixed">مختلط</option><option value="credit">آجل / دين</option></select></div>
               <div class="pos-currency hidden">العملة: <span style="margin-inline-start:6px">د.ل</span></div>
             </div>
@@ -797,7 +799,7 @@
 
             <div class="sale-finish-bar">
               <div class="finish-total"><span>إجمالي الفاتورة</span><b id="saleFinishTotal">0.00</b><span class="mini" id="saleFinishBalance">المتبقي: 0.00</span></div>
-              <div class="finish-actions"><button class="btn" id="salePayBtn" type="button" onclick="openSalePaymentScreen()"><i class="ti ti-cash"></i> الدفع</button><button class="btn secondary" type="button" onclick="parkCurrentSale()">تعليق</button><button class="btn secondary" type="button" onclick="resumeParkedSale()">المعلقة</button><button class="btn secondary" type="button" onclick="resetSaleFormWithConfirm()">فاتورة جديدة</button></div>
+              <div class="finish-actions"><button class="btn" id="salePayBtn" type="button" onclick="openSalePaymentScreen()"><i class="ti ti-cash"></i> الدفع</button><button class="btn secondary" type="button" onclick="parkCurrentSale()">تعليق</button><button class="btn secondary" type="button" onclick="resumeParkedSale()">المعلقة</button><button class="btn secondary" type="button" onclick="resetSaleFormWithConfirm()">فاتورة جديدة</button><span id="saleFooterBranch" class="mini"></span></div>
             </div>
             <div class="pos-bottom-bar" id="salePaymentScreen">
               <div class="payment-title"><h2>شاشة الدفع</h2><div class="big" id="salePaymentScreenTotal">0.00</div><button class="btn secondary" type="button" onclick="closeSalePaymentScreen()">رجوع للفاتورة</button></div>
@@ -4954,6 +4956,7 @@ function renderStatusBar(){
   if(q('sbDate')) q('sbDate').innerHTML=`<span class="sb-date-greg">${esc(gregDate(d))} — </span>${esc(hijriDate(d))}`;
   const locName=locations.find(l=>l.id===(q('saleLocation')?.value||''))?.name;
   if(q('sbBranch')) q('sbBranch').textContent=locName||appUser?.branch_name||'الفرع الرئيسي';
+  if(q('saleFooterBranch')) q('saleFooterBranch').textContent='الفرع: '+(locName||appUser?.branch_name||'');
 }
 setInterval(renderStatusBar,60000);
 
