@@ -441,6 +441,43 @@
     @media(max-width:760px){#salePaymentScreen.pos-bottom-bar.payment-open{left:10px;right:10px;bottom:48px;width:auto;max-height:45vh}}
 </style>
 
+<style id="sales-refresh">
+/* ===== شاشة البيع اليومي: ألوان وتنظيم وحدة + فوتر دفع لاصق ===== */
+#sales .cashier-head{background:linear-gradient(120deg,#1d4ed8 0%,#6d28d9 100%);color:#fff;border:none;border-radius:18px;padding:14px 18px}
+#sales .cashier-head h2{color:#fff}
+#sales .cashier-head .shortcut-hint{color:rgba(255,255,255,.95)}
+#sales .cashier-head .kbd{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);color:#fff}
+#sales .cashier-big-total{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3)}
+#sales .cashier-big-total span,#sales .cashier-big-total b{color:#fff}
+#sales .pos-invoice-head{border-radius:16px}
+#sales .barcode-input{background:linear-gradient(135deg,#eef2ff,#f5f3ff);border-color:#6366f1}
+/* سلسلة الإجراءات: أزرار ملوّنة */
+#sales .pos-action-rail .rail-btn{background:linear-gradient(135deg,#4f46e5,#6366f1);color:#fff;border:none;box-shadow:0 2px 8px rgba(79,70,229,.25);transition:transform .12s,filter .12s}
+#sales .pos-action-rail .rail-btn i{color:#fff}
+#sales .pos-action-rail .rail-btn:hover{filter:brightness(1.07);transform:translateY(-1px)}
+#sales .pos-action-rail .rail-btn:disabled{background:var(--table-head);color:var(--muted);box-shadow:none}
+#sales .pos-action-rail .rail-btn:disabled i{color:var(--muted)}
+/* بطاقات المعلومات: لمسات لون (آمنة في الوضعين) */
+#sales .cashier-info-grid .info-card:nth-child(1){border-inline-start:5px solid #f59e0b}
+#sales .cashier-info-grid .info-card:nth-child(1) h3{color:#b45309}
+#sales .cashier-info-grid .info-card:nth-child(2){border-inline-start:5px solid #10b981}
+#sales .cashier-info-grid .info-card:nth-child(2) h3{color:#047857}
+#sales .add-row-strip{background:linear-gradient(135deg,#eef2ff,#e0e7ff);color:#4338ca;border-color:#c7d2fe}
+#sales .pos-items-card .tools h2{color:#4f46e5}
+/* فوتر الدفع اللاصق البارز */
+#sales .sale-finish-bar{position:sticky;bottom:46px;z-index:30;background:linear-gradient(120deg,#0f172a,#312e81);border:1px solid #4f46e5;border-radius:18px;padding:12px 16px;box-shadow:0 -8px 26px rgba(2,6,23,.28);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:14px}
+#sales .sale-finish-bar .finish-total{color:#fff}
+#sales .sale-finish-bar .finish-total span{color:rgba(226,232,240,.85)}
+#sales .sale-finish-bar .finish-total b{color:#fff;font-size:30px}
+#sales .sale-finish-bar .finish-total .mini{color:#fbbf24;font-weight:800}
+#sales .sale-finish-bar .finish-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+#sales #salePayBtn{background:linear-gradient(135deg,#fb923c,#ea580c);color:#fff;border:none;font-size:19px;font-weight:900;padding:14px 30px;border-radius:14px;box-shadow:0 6px 18px rgba(234,88,12,.45);min-height:56px;display:inline-flex;align-items:center;gap:8px;transition:transform .12s,filter .12s}
+#sales #salePayBtn:hover{filter:brightness(1.05);transform:translateY(-1px)}
+#sales #salePayBtn i{color:#fff;font-size:22px}
+#sales .sale-finish-bar .btn.secondary{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.28)}
+#sales .sale-finish-bar .btn.secondary:hover{background:rgba(255,255,255,.2)}
+@media (max-width:760px){#sales .sale-finish-bar .finish-total b{font-size:24px}#sales #salePayBtn{font-size:17px;padding:12px 20px}}
+</style>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="mobile-web-app-capable" content="yes">
