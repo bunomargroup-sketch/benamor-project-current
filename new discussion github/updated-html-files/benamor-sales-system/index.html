@@ -213,7 +213,7 @@
     #sales.hide-margins .pos-items-card table thead th:nth-child(6),
     #sales.hide-margins #saleItemsBody td.si-margin,
     #sales.hide-margins #saleItemsBody td.si-margin-pct{display:none!important}
-    #sales .margin-toggle-active{background:linear-gradient(135deg,var(--blue),#7c3aed)!important;color:#fff!important}
+    #sales .margin-toggle-active{background:linear-gradient(135deg,var(--blue),#1e3a8a)!important;color:#fff!important}
     #sales .margin-toggle-active i{color:#fff!important}
 
 
@@ -442,8 +442,8 @@
 </style>
 
 <style id="sales-refresh">
-/* ===== شاشة البيع اليومي: ألوان وتنظيم وحدة + فوتر دفع لاصق ===== */
-#sales .cashier-head{background:linear-gradient(120deg,#1d4ed8 0%,#6d28d9 100%);color:#fff;border:none;border-radius:18px;padding:14px 18px}
+/* ===== شاشة البيع اليومي: هوية Azure عصرية (2026) — بلا بنفسجي ===== */
+#sales .cashier-head{background:linear-gradient(120deg,#1e3a8a 0%,#1d4ed8 100%);color:#fff;border:none;border-radius:18px;padding:14px 18px}
 #sales .cashier-head h2{color:#fff}
 #sales .cashier-head .shortcut-hint{color:rgba(255,255,255,.95)}
 #sales .cashier-head .kbd{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);color:#fff}
@@ -451,42 +451,44 @@
 #sales .cashier-big-total span,#sales .cashier-big-total b{color:#fff}
 #sales .pos-invoice-head{border-radius:16px;display:grid;grid-template-columns:1.1fr 1fr 1.35fr;gap:10px;align-items:stretch}
 #sales .sale-group{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:10px 12px;margin-bottom:0;display:flex;flex-direction:column}
-#sales .sale-group-title{font-size:13px;font-weight:800;color:#4f46e5;display:flex;align-items:center;gap:6px;margin-bottom:8px}
+#sales .sale-group-title{font-size:13px;font-weight:800;color:#1d4ed8;display:flex;align-items:center;gap:6px;margin-bottom:8px}
 #sales .sale-group-grid{display:grid;grid-template-columns:1fr;gap:8px;align-items:end}
 #sales .sale-group-grid .wide{grid-column:auto}
-#sales #saleLocation:disabled{opacity:.8;font-weight:800;color:var(--text);background:var(--accent-soft)}
+#sales #saleLocation:disabled{opacity:.85;font-weight:800;color:var(--text);background:var(--accent-soft)}
 @media (max-width:1100px){#sales .pos-invoice-head{grid-template-columns:1fr}}
-#sales .barcode-input{background:linear-gradient(135deg,#eef2ff,#f5f3ff);border-color:#6366f1}
-/* سلسلة الإجراءات: أزرار ملوّنة */
-#sales .pos-action-rail .rail-btn{background:linear-gradient(135deg,#4f46e5,#6366f1);color:#fff;border:none;box-shadow:0 2px 8px rgba(79,70,229,.25);transition:transform .12s,filter .12s}
+#sales .barcode-input{background:linear-gradient(135deg,#eff6ff,#dbeafe);border-color:#3b82f6}
+/* سلسلة الإجراءات: أزرار Azure */
+#sales .pos-action-rail .rail-btn{background:linear-gradient(135deg,#1d4ed8,#2563eb);color:#fff;border:none;box-shadow:0 2px 8px rgba(37,99,235,.25);transition:transform .12s,filter .12s}
 #sales .pos-action-rail .rail-btn i{color:#fff}
 #sales .pos-action-rail .rail-btn:hover{filter:brightness(1.07);transform:translateY(-1px)}
 #sales .pos-action-rail .rail-btn:disabled{background:var(--table-head);color:var(--muted);box-shadow:none}
 #sales .pos-action-rail .rail-btn:disabled i{color:var(--muted)}
-/* بطاقات المعلومات: لمسات لون (آمنة في الوضعين) */
+/* بطاقات المعلومات: لمسات لون */
 #sales .cashier-info-grid .info-card:nth-child(1){border-inline-start:5px solid #f59e0b}
 #sales .cashier-info-grid .info-card:nth-child(1) h3{color:#b45309}
 #sales .cashier-info-grid .info-card:nth-child(2){border-inline-start:5px solid #10b981}
 #sales .cashier-info-grid .info-card:nth-child(2) h3{color:#047857}
-#sales .add-row-strip{background:linear-gradient(135deg,#eef2ff,#e0e7ff);color:#4338ca;border-color:#c7d2fe}
-#sales .pos-items-card .tools h2{color:#4f46e5}
-/* فوتر الدفع اللاصق البارز */
-#sales .sale-finish-bar{position:fixed;left:14px;right:14px;bottom:44px;z-index:30;background:linear-gradient(120deg,#0f172a,#312e81);border:1px solid #4f46e5;border-radius:18px;padding:12px 16px;box-shadow:0 -8px 26px rgba(2,6,23,.28);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#sales .add-row-strip{background:linear-gradient(135deg,#eff6ff,#dbeafe);color:#1d4ed8;border-color:#bfdbfe}
+#sales .pos-items-card .tools h2{color:#1d4ed8}
+/* فوتر الدفع اللاصق */
+#sales .sale-finish-bar{position:fixed;left:14px;right:14px;bottom:44px;z-index:30;background:linear-gradient(120deg,#0f172a,#1e3a8a);border:1px solid #1d4ed8;border-radius:18px;padding:12px 16px;box-shadow:0 -8px 26px rgba(2,6,23,.28);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 #sales #saleForm{padding-bottom:96px}
-@media(min-width:901px){body:not(.nav-collapsed) #sales .sale-finish-bar{left:292px}}
+/* القائمة الرئيسية تظهر يميناً (RTL) — نُزيح الحافة اليمنى للشريط بعيداً عنها */
+@media(min-width:901px){body:not(.nav-collapsed) #sales .sale-finish-bar{right:292px}}
 #sales #saleFooterBranch{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);color:#fff;padding:7px 12px;border-radius:999px;font-weight:800;font-size:12px;white-space:nowrap}
 #sales .sale-finish-bar .finish-total{color:#fff}
 #sales .sale-finish-bar .finish-total span{color:rgba(226,232,240,.85)}
 #sales .sale-finish-bar .finish-total b{color:#fff;font-size:30px}
 #sales .sale-finish-bar .finish-total .mini{color:#fbbf24;font-weight:800}
 #sales .sale-finish-bar .finish-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-#sales #salePayBtn{background:linear-gradient(135deg,#fb923c,#ea580c);color:#fff;border:none;font-size:19px;font-weight:900;padding:14px 30px;border-radius:14px;box-shadow:0 6px 18px rgba(234,88,12,.45);min-height:56px;display:inline-flex;align-items:center;gap:8px;transition:transform .12s,filter .12s}
+#sales #salePayBtn{background:linear-gradient(135deg,#fbbf24,#ea580c);color:#fff;border:none;font-size:19px;font-weight:900;padding:14px 30px;border-radius:14px;box-shadow:0 6px 18px rgba(234,88,12,.45);min-height:56px;display:inline-flex;align-items:center;gap:8px;transition:transform .12s,filter .12s}
 #sales #salePayBtn:hover{filter:brightness(1.05);transform:translateY(-1px)}
 #sales #salePayBtn i{color:#fff;font-size:22px}
 #sales .sale-finish-bar .btn.secondary{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.28)}
 #sales .sale-finish-bar .btn.secondary:hover{background:rgba(255,255,255,.2)}
 @media (max-width:760px){#sales .sale-finish-bar .finish-total b{font-size:24px}#sales #salePayBtn{font-size:17px;padding:12px 20px}}
 </style>
+
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="mobile-web-app-capable" content="yes">
