@@ -445,6 +445,7 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="mobile-web-app-capable" content="yes">
 <script>if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(console.warn));}</script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body class="auth-locked">
   <header>
@@ -1214,6 +1215,20 @@
           <p class="mini" style="margin-top:8px">للأفضل: ثبّت التطبيق كـ PWA (إضافة إلى الشاشة الرئيسية / Install) ليفتح فوراً دون انتظار الإنترنت.</p>
         </div>
         <div class="panel">
+          <h2>النسخ الاحتياطي على Google Drive</h2>
+          <p class="muted">يُحفظ في مجلد مخفي خاص بالتطبيق في حسابك على Google (appDataFolder) ولا يظهر بين ملفاتك. يتيح مزامنة النسخة بين الأجهزة بضغطة زر.</p>
+          <div><label>معرّف العميل (OAuth Client ID) من Google Cloud</label><input id="gDriveClientID" class="ltr" placeholder="xxxxx.apps.googleusercontent.com"></div>
+          <div class="row" style="margin-top:8px">
+            <button class="btn secondary" type="button" onclick="gDriveSaveClientID()">حفظ المعرّف</button>
+            <button class="btn" type="button" onclick="gDriveConnect()">ربط Google Drive</button>
+            <button class="btn secondary" type="button" onclick="gDriveSave()">☁️ حفظ نسخة على Drive</button>
+            <button class="btn secondary" type="button" onclick="gDriveRestore()">⬇️ استعادة من Drive</button>
+          </div>
+          <div style="margin-top:8px"><span id="gDriveStatus" class="muted"></span></div>
+          <label style="display:flex;align-items:center;gap:6px;margin-top:8px"><input id="gDriveAuto" type="checkbox" style="width:auto" onchange="gDriveToggleAuto(this)"> حفظ تلقائي على Drive بعد كل تحديث (غير مستحسن على الإنترنت الضعيف)</label>
+          <p class="mini" style="margin-top:6px">مطلوب إنشاء OAuth Client ID مرة واحدة من Google Cloud Console (راجع التعليمات). البيع والحفظ لا يزالان يحتاجان اتصالاً بالخادم.</p>
+        </div>
+        <div class="panel">
           <h2>الإعدادات</h2>
           <p class="muted">إعدادات سريعة محفوظة على هذا الجهاز. يمكن تغيير الاسم والعملة وحد المخزون المنخفض بدون تعديل الكود.</p>
           <form class="form" id="settingsForm">
@@ -1684,6 +1699,67 @@ function restoreBackup(input){
   reader.onerror=()=>{toast('تعذّر قراءة الملف','error'); input.value='';};
   reader.readAsText(file);
 }
+/* ===== النسخ الاحتياطي على Google Drive (مجلد مخفي appDataFolder) ===== */
+let gDrive={token:null,expires:0,email:'',clientId:localStorage.getItem('posGDriveClientID')||'',fileId:localStorage.getItem('posGDriveFileID')||'',lastSync:localStorage.getItem('posGDriveLastSync')||'',auto:localStorage.getItem('posGDriveAuto')==='1'};
+const GDRIVE_SCOPE='https://www.googleapis.com/auth/drive.appdata openid email';
+const GDRIVE_FILE='pos-backup.json';
+function gatherBackupData(){return {_meta:{app:'benamor-pos',exported_at:new Date().toISOString(),branch:appUser?.branch_name||'',user:appUser?.identifier||''},locations,suppliers,supplier_ledger:ledger,supplier_payments:payments,stock,purchases,purchaseItems,products,transfers,sales,saleItems,salePayments,proformas,proformaItems,saleReturns,saleReturnItems,stockMovements,customers,customerLedger,userRoles,financeAccounts,financeMovements,dailyCashClosings,expenseCategories,expenses,employees,salaryPayments,settings:{businessName:APP_CONFIG.businessName,tagline:APP_CONFIG.tagline,currency:APP_CONFIG.currency,lowStockThreshold:APP_CONFIG.lowStockThreshold}};}
+function applyBackupData(data){const cache={saved_at:new Date().toISOString(),locations:data.locations||[],suppliers:data.suppliers||[],stock:data.stock||[],purchases:data.purchases||[],purchaseItems:data.purchaseItems||[],products:data.products||[],transfers:data.transfers||[],sales:data.sales||[],saleItems:data.saleItems||[],salePayments:data.salePayments||[],customers:data.customers||[],customerLedger:data.customerLedger||[],userRoles:data.userRoles||[],financeAccounts:data.financeAccounts||[],financeMovements:data.financeMovements||[],expenseCategories:data.expenseCategories||[],expenses:data.expenses||[],dailyCashClosings:data.dailyCashClosings||[]};localStorage.setItem(ESSENTIAL_CACHE_KEY,JSON.stringify(cache));applyEssentialCache(cache);}
+function renderGDriveStatus(){
+  const inp=q('gDriveClientID'); if(inp && !inp.value && gDrive.clientId) inp.value=gDrive.clientId;
+  const cb=q('gDriveAuto'); if(cb) cb.checked=!!gDrive.auto;
+  const el=q('gDriveStatus'); if(!el) return;
+  el.innerHTML=gDrive.clientId?`<div class="mini">الحالة: ${gDrive.email?('مرتبط بـ '+esc(gDrive.email)):'<b>غير مرتبط</b> — اضغط «ربط Google Drive».'}</div>${gDrive.lastSync?`<div class="mini">آخر نسخة على Drive: ${esc(gDrive.lastSync)}</div>`:''}`:`<div class="mini">أدخل معرّف العميل (Client ID) من Google Cloud ثم اضغط «حفظ المعرّف».</div>`;
+}
+function gDriveSaveClientID(){const v=(q('gDriveClientID')?.value||'').trim(); if(!v){toast('الصق معرّف العميل (Client ID)','warn');return;} gDrive.clientId=v; localStorage.setItem('posGDriveClientID',v); toast('تم حفظ معرّف العميل','success'); renderGDriveStatus();}
+function gDriveEnsureToken(){return new Promise((resolve,reject)=>{
+  if(!gDrive.clientId){reject(new Error('لم يُضبط معرّف العميل (Client ID)'));return;}
+  if(gDrive.token && Date.now()<gDrive.expires-60000){resolve(gDrive.token);return;}
+  if(!window.google?.accounts?.oauth2){reject(new Error('لم يُحمّل سكربت Google بعد — تأكد من الاتصال بالإنترنت'));return;}
+  const client=window.google.accounts.oauth2.initTokenClient({client_id:gDrive.clientId,scope:GDRIVE_SCOPE,
+    callback:resp=>{if(resp.error){reject(new Error(String(resp.error)));return;} gDrive.token=resp.access_token; gDrive.expires=Date.now()+(Number(resp.expires_in)||3600)*1000;
+      fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+resp.access_token}}).then(r=>r.json()).then(u=>{gDrive.email=u.email||'';renderGDriveStatus();}).catch(()=>{});
+      resolve(resp.access_token);},
+    error_callback:err=>reject(new Error((err&&(err.message||err.type))||'فشل تسجيل الدخول إلى Google'))});
+  client.requestAccessToken({prompt:(gDrive.token?'':'consent')});
+});}
+function gDriveConnect(){gDriveEnsureToken().then(()=>toast('تم ربط Google Drive','success')).catch(e=>toast('تعذّر الربط: '+e.message,'error'));}
+async function gDriveFindFile(token){const r=await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent("name='"+GDRIVE_FILE+"'")}&spaces=appDataFolder&fields=files(id,name,modifiedTime,size)&orderBy=modifiedTime%20desc`,{headers:{Authorization:'Bearer '+token}}); if(!r.ok) throw new Error('تعذّر البحث في Drive'); const j=await r.json(); return (j.files&&j.files[0])||null;}
+async function gDriveSave(){
+  try{
+    const token=await gDriveEnsureToken(); showLoading(true);
+    const content=JSON.stringify(gatherBackupData());
+    const existing=gDrive.fileId?{id:gDrive.fileId}:await gDriveFindFile(token).catch(()=>null);
+    if(existing&&existing.id){
+      const r=await fetch(`https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=media&fields=id,modifiedTime`,{method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:content});
+      if(!r.ok) throw new Error('تعذّر تحديث الملف في Drive'); const j=await r.json(); gDrive.fileId=existing.id; gDrive.lastSync=(j.modifiedTime||'').replace('T',' ').slice(0,19);
+    }else{
+      const meta={name:GDRIVE_FILE,parents:['appDataFolder']}; const boundary='pos_'+Date.now();
+      const body=`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${boundary}--`;
+      const r=await fetch(`https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime`,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'multipart/related; boundary='+boundary},body});
+      if(!r.ok) throw new Error('تعذّر رفع الملف إلى Drive'); const j=await r.json(); gDrive.fileId=j.id; gDrive.lastSync=(j.modifiedTime||'').replace('T',' ').slice(0,19);
+    }
+    localStorage.setItem('posGDriveFileID',gDrive.fileId); localStorage.setItem('posGDriveLastSync',gDrive.lastSync);
+    renderGDriveStatus(); toast('تم حفظ النسخة الاحتياطية على Google Drive','success');
+  }catch(e){console.error(e);toast('تعذّر الحفظ على Drive: '+e.message,'error')}finally{showLoading(false)}
+}
+async function gDriveRestore(){
+  try{
+    const token=await gDriveEnsureToken(); showLoading(true);
+    let file=gDrive.fileId?{id:gDrive.fileId}:null;
+    if(file){const t=await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}`,{headers:{Authorization:'Bearer '+token}}); if(!t.ok) file=null;}
+    if(!file) file=await gDriveFindFile(token);
+    if(!file){toast('لا توجد نسخة احتياطية على Drive بعد','warn');return;}
+    const r=await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,{headers:{Authorization:'Bearer '+token}});
+    if(!r.ok) throw new Error('تعذّر تنزيل النسخة'); const data=await r.json();
+    applyBackupData(data); gDrive.fileId=file.id; gDrive.lastSync=(file.modifiedTime||'').replace('T',' ').slice(0,19);
+    localStorage.setItem('posGDriveFileID',gDrive.fileId); localStorage.setItem('posGDriveLastSync',gDrive.lastSync);
+    renderGDriveStatus(); toast('تمت الاستعادة من Google Drive','success');
+  }catch(e){console.error(e);toast('تعذّرت الاستعادة من Drive: '+e.message,'error')}finally{showLoading(false)}
+}
+function gDriveToggleAuto(cb){gDrive.auto=!!cb.checked; localStorage.setItem('posGDriveAuto',gDrive.auto?'1':'0'); toast(gDrive.auto?'تم تفعيل الحفظ التلقائي على Drive بعد كل تحديث':'تم إيقاف الحفظ التلقائي','success');}
+let gDriveAutoTimer=null;
+function gDriveMaybeAuto(){if(!gDrive.auto||!gDrive.clientId)return; clearTimeout(gDriveAutoTimer); gDriveAutoTimer=setTimeout(()=>{gDriveSave().catch(()=>{});},8000);}
 async function loadAll(){
   // على الإنترنت الضعيف: اعرض آخر بيانات محفوظة فوراً ثم حدّث من الخادم بالخلفية
   if(!products.length){ const _c=loadEssentialCache(); if(_c) applyEssentialCache(_c); }
@@ -1719,7 +1795,7 @@ async function loadAll(){
       apiAll('pos_salary_payments','?select=*&order=payment_date.desc,created_at.desc&limit=100').catch(e=>{console.warn('salary payments not setup yet',e); return []})
     ]);
     ['productCategoryFilter','productBrandFilter','productColorFilter','productSupplierFilter','stockCategoryFilter','stockBrandFilter','stockSupplierFilter'].forEach(id=>{if(q(id)) q(id).dataset.ready='';});
-    renderAll(); saveEssentialCache(); setSyncState('online','متصل - تم تحديث البيانات');
+    renderAll(); saveEssentialCache(); setSyncState('online','متصل - تم تحديث البيانات'); gDriveMaybeAuto();
   }catch(e){ console.error(e); const used=applyEssentialCache(loadEssentialCache()); if(used) toast('الاتصال ضعيف: تم استعمال آخر بيانات محفوظة','warn'); else toast('خطأ: '+e.message+' - لا توجد بيانات محفوظة محليًا'); }
   finally{showLoading(false);window.__busy=false}
 }
@@ -4831,7 +4907,7 @@ function renderStatusBar(){
 setInterval(renderStatusBar,60000);
 
 function setToday(){const d=new Date().toISOString().slice(0,10); q('paymentDate').value=d; q('purchaseDate').value=d; q('transferDate').value=d; q('saleDate').value=d; if(q('proformaDate')) q('proformaDate').value=d; q('customerPaymentDate').value=d; if(q('dailyCashDate')) q('dailyCashDate').value=d; if(q('expenseLocation')&&appUser?.branch_id&&!q('expenseLocation').value) q('expenseLocation').value=appUser.branch_id; ['financeTransferDate','expenseDate','salaryPaymentDate'].forEach(id=>{if(q(id))q(id).value=d}); if(q('reportTo')) q('reportTo').value=d; if(q('reportFrom') && !q('reportFrom').value){const first=new Date(); first.setDate(1); q('reportFrom').value=first.toISOString().slice(0,10)}}
-initBranding(); fillSettingsForm(); initConnectivity(); initNavGroups(); setupDecimalInputs(); setupSaleTabFlow(); setupLongPickers(); setTimeout(toggleFinancePaymentMethods,0); setToday(); q('saleLocation')?.addEventListener('change',function(){ if(this.value) localStorage.setItem('posLastSaleLocation',this.value); }); try{if(localStorage.getItem('posNavCollapsed')==='1') document.body.classList.add('nav-collapsed');}catch(e){} renderStatusBar(); addTransferRow(); if(q('proformaItemsBody')) addProformaRow(); ensureSaleInvoiceNo(true); updateAuthUI(); loadLoginBranches(); setTimeout(tryRestoreActiveSaleDraft,600); if(appUser?.id && authSession?.access_token){loadAll().then(async()=>{await ensureRoleAfterLogin(); updateAuthUI(); applyPermissions(); renderCustomers();}).catch(e=>{console.error(e); logoutPOS(); toast('انتهت الجلسة، سجل الدخول مرة أخرى','warn')});}else{q('loginIdentifier')?.focus();}
+initBranding(); fillSettingsForm(); initConnectivity(); initNavGroups(); setupDecimalInputs(); setupSaleTabFlow(); setupLongPickers(); setTimeout(toggleFinancePaymentMethods,0); setToday(); q('saleLocation')?.addEventListener('change',function(){ if(this.value) localStorage.setItem('posLastSaleLocation',this.value); }); try{if(localStorage.getItem('posNavCollapsed')==='1') document.body.classList.add('nav-collapsed');}catch(e){} renderStatusBar(); renderGDriveStatus(); addTransferRow(); if(q('proformaItemsBody')) addProformaRow(); ensureSaleInvoiceNo(true); updateAuthUI(); loadLoginBranches(); setTimeout(tryRestoreActiveSaleDraft,600); if(appUser?.id && authSession?.access_token){loadAll().then(async()=>{await ensureRoleAfterLogin(); updateAuthUI(); applyPermissions(); renderCustomers();}).catch(e=>{console.error(e); logoutPOS(); toast('انتهت الجلسة، سجل الدخول مرة أخرى','warn')});}else{q('loginIdentifier')?.focus();}
 </script>
 </body>
 </html>
