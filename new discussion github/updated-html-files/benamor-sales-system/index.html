@@ -6,7 +6,7 @@
   <title>نظام البيع</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
   <script>(function(){try{var t=localStorage.getItem('posTheme'); if(t){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();</script>
   <style>
@@ -36,7 +36,7 @@
     html[data-theme="light"]{--bg:#f4f6fb;--card:#ffffff;--text:#0f172a;--muted:#64748b;--border:#e7ecf4;--input:#ffffff;--table-head:#f6f9fd;--hover:#f3f7ff;--accent-soft:#eef4ff;--blue:#2563eb;--blue2:#1d4ed8;--shadow:0 1px 2px rgba(15,23,42,.05),0 1px 3px rgba(15,23,42,.06);}
     *{box-sizing:border-box}
     html{color-scheme:light dark}
-    body{margin:0;background:var(--bg);font-family:'IBM Plex Sans Arabic',Tahoma,Arial,sans-serif;color:var(--text);font-weight:400;line-height:1.55}
+    body{margin:0;background:var(--bg);font-family:'Cairo',Tahoma,Arial,sans-serif;color:var(--text);font-weight:400;line-height:1.55}
     header{background:var(--blue);color:white;padding:16px 22px;position:sticky;top:0;z-index:20;box-shadow:var(--shadow)}
     .top{display:flex;align-items:center;justify-content:space-between;gap:14px;max-width:1320px;margin:auto}
     .brand{display:flex;flex-direction:column;gap:3px}.brand h1{font-size:23px;margin:0;font-weight:700;letter-spacing:-.02em}.brand p{margin:0;opacity:.86;font-size:13px;font-weight:500}
@@ -2995,9 +2995,9 @@ async function printSale(id){
     const statusBadge=balance>0?'<span class="st st-due">آجل / متبقٍ</span>':'<span class="st st-paid">مدفوعة بالكامل</span>';
     const rows=items.map((it,i)=>`<tr><td class="n">${i+1}</td><td class="ltr">${esc(it.product_code)}</td><td>${esc(it.product_name)}</td><td class="n">${money(it.qty)}</td><td class="n">${money(it.unit_price)}</td><td class="n">${money(it.line_discount||0)}</td><td class="n"><b>${money(it.line_total)}</b></td></tr>`).join('');
     const html=`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>فاتورة بيع ${esc(sl.invoice_no||sl.id.slice(0,8))}</title><style>
-      @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap');
       *{box-sizing:border-box}
-      body{font-family:'IBM Plex Sans Arabic',Tahoma,Arial,sans-serif;margin:0;color:#0f172a;line-height:1.6;background:#f1f5f9}
+      body{font-family:'Cairo',Tahoma,Arial,sans-serif;margin:0;color:#0f172a;line-height:1.6;background:#f1f5f9}
       .bar{max-width:820px;margin:14px auto 0;display:flex;justify-content:flex-end;gap:8px;padding:0 6px}
       .pbtn{background:#1d4ed8;color:#fff;border:0;border-radius:10px;padding:10px 18px;font:inherit;font-weight:700;cursor:pointer}
       .pbtn.ghost{background:#fff;color:#1d4ed8;border:1px solid #c7d2fe}
@@ -4360,7 +4360,8 @@ function dailyCashPrintHtml(d, meta={}){
   return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير الخزينة اليومية — ${esc(d.branchName)} ${esc(d.date)}</title>
 <style>
 *{box-sizing:border-box}
-body{font-family:'IBM Plex Sans Arabic',Tahoma,Arial,sans-serif;color:#111;margin:22px;line-height:1.6}
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap');
+body{font-family:'Cairo',Tahoma,Arial,sans-serif;color:#111;margin:22px;line-height:1.6}
 .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1d4ed8;padding-bottom:12px;margin-bottom:10px}
 .head .title{font-size:24px;font-weight:800;color:#1d4ed8}.head .sub{color:#555;font-size:13px}
 .meta{text-align:left;font-size:13px;line-height:1.9}.meta b{color:#111}
@@ -4600,9 +4601,9 @@ function printReports(){
   const period=`${q('reportFrom')?.value||'—'} ← ${q('reportTo')?.value||'—'}`;
   const w=window.open('','_blank'); if(!w){toast('المتصفح منع نافذة الطباعة. اسمح بالنوافذ المنبثقة.'); return;}
   w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقارير ${esc(APP_CONFIG.businessName)}</title><style>
-    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap');
     *{box-sizing:border-box}
-    body{font-family:'IBM Plex Sans Arabic',Tahoma,Arial,sans-serif;margin:0;color:#0f172a;line-height:1.6;background:#f1f5f9}
+    body{font-family:'Cairo',Tahoma,Arial,sans-serif;margin:0;color:#0f172a;line-height:1.6;background:#f1f5f9}
     .bar{max-width:1000px;margin:14px auto 0;text-align:left;padding:0 6px}
     .pbtn{background:#1d4ed8;color:#fff;border:0;border-radius:10px;padding:10px 18px;font:inherit;font-weight:700;cursor:pointer}
     .sheet{max-width:1000px;margin:14px auto;background:#fff;padding:30px 34px;border-radius:16px;box-shadow:0 10px 40px rgba(2,6,23,.12)}
