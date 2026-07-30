@@ -2124,18 +2124,19 @@ function fillPurchaseRow(input){
 }
 
 
+let _productCatCounts=null, _productCatCountKey=-1;
 function renderProductCategoryTree(activeCat=''){
   if(!q('productCategoryTree')) return;
-  const counts={}; products.forEach(p=>{const c=p.category||'بدون تصنيف'; counts[c]=(counts[c]||0)+1});
+  if(_productCatCountKey!==products.length){ _productCatCountKey=products.length; const counts={}; for(const p of products){const c=p.category||'بدون تصنيف'; counts[c]=(counts[c]||0)+1;} _productCatCounts=counts; }
   q('allProductsCountSide').textContent=products.length;
-  q('productCategoryTree').innerHTML=Object.entries(counts).sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0],'ar')).map(([cat,count])=>`<div class="category-node ${activeCat===cat?'active':''}" onclick="selectProductCategory('${String(cat).replace(/'/g,"\'")}')"><span>${esc(cat)}</span><span class="count">${count}</span></div>`).join('');
+  q('productCategoryTree').innerHTML=Object.entries(_productCatCounts||{}).sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0],'ar')).map(([cat,count])=>`<div class="category-node ${activeCat===cat?'active':''}" onclick="selectProductCategory('${String(cat).replace(/'/g,"\'")}')"><span>${esc(cat)}</span><span class="count">${count}</span></div>`).join('');
 }
 function selectProductCategory(cat){
   q('productCategoryFilter').value=cat||'';
   renderProducts();
 }
 
-function buildProductSearchIndex(){ for(const p of products){ if(p && p._hay===undefined) p._hay=normText(productSearchFields(p).join(' ')); } }
+function buildProductSearchIndex(){ for(const p of products){ if(!p) continue; if(p._hay===undefined) p._hay=normText(productSearchFields(p).join(' ')); if(p._cost===undefined){ const c=productCost(p.code); p._cost=c; p._mv=Number(p.retail_price||0)-c; p._mp=(c>0)?(p._mv/c*100):0; } } }
 let _renderProductsTimer=null;
 function debounceRenderProducts(){ clearTimeout(_renderProductsTimer); _renderProductsTimer=setTimeout(renderProducts,180); }
 function renderProducts(){
@@ -2152,12 +2153,12 @@ function renderProducts(){
   });
   const productCols=['product_no','code','name','brand','color','barcode','supplier_name','category','purchase_price','retail_price','margin_value','margin_pct','reorder_point','stock_11_june','stock_sarraj','stock_janzour','total_stock'];
   const key=productCols[productSortIndex]||'total_stock';
-  rows.sort((a,b)=>{const va=key==='margin_value'?marginValue(a.code,a.retail_price):(key==='margin_pct'?marginPct(a.code,a.retail_price):(a[key]??'')), vb=key==='margin_value'?marginValue(b.code,b.retail_price):(key==='margin_pct'?marginPct(b.code,b.retail_price):(b[key]??'')); const na=parseFloat(va), nb=parseFloat(vb); const c=(!isNaN(na)&&!isNaN(nb))?na-nb:String(va).localeCompare(String(vb),'ar'); return productSortDir==='asc'?c:-c;});
-  const shown=rows.slice(0,300);
-  q('productsBody').innerHTML = shown.map(p=>{const safe=String(p.code||'').replace(/'/g,"\'"); return `<tr class="${selectedProductCode===p.code?'selected-row':''}" onclick="selectProductRow('${safe}')"><td class="ltr">${esc(p.product_no)}</td><td class="ltr"><b>${esc(p.code)}</b></td><td>${esc(p.name)}</td><td>${esc(p.brand)}<div class="mini ltr">${esc(p.model)}</div></td><td>${esc(p.color)}</td><td class="ltr">${esc(p.barcode)}</td><td>${esc(p.supplier_name)}</td><td>${esc(p.category)}</td><td>${money(p.purchase_price)}</td><td>${money(p.retail_price)}</td><td>${money(marginValue(p.code,p.retail_price))}</td><td>${money(marginPct(p.code,p.retail_price))}%</td><td>${money(p.reorder_point)}</td><td>${money(p.stock_11_june)}</td><td>${money(p.stock_sarraj)}</td><td>${money(p.stock_janzour)}</td><td><b>${money(p.total_stock)}</b></td></tr>`}).join('') || '<tr><td colspan="17">لا توجد منتجات. شغل ملف استيراد قاعدة البيانات أولاً.</td></tr>';
+  rows.sort((a,b)=>{const va=key==='margin_value'?a._mv:(key==='margin_pct'?a._mp:(a[key]??'')), vb=key==='margin_value'?b._mv:(key==='margin_pct'?b._mp:(b[key]??'')); const na=parseFloat(va), nb=parseFloat(vb); const c=(!isNaN(na)&&!isNaN(nb))?na-nb:String(va).localeCompare(String(vb),'ar'); return productSortDir==='asc'?c:-c;});
+  const shown=rows.slice(0,100);
+  q('productsBody').innerHTML = shown.map(p=>{const safe=String(p.code||'').replace(/'/g,"\'"); return `<tr class="${selectedProductCode===p.code?'selected-row':''}" onclick="selectProductRow('${safe}')"><td class="ltr">${esc(p.product_no)}</td><td class="ltr"><b>${esc(p.code)}</b></td><td>${esc(p.name)}</td><td>${esc(p.brand)}<div class="mini ltr">${esc(p.model)}</div></td><td>${esc(p.color)}</td><td class="ltr">${esc(p.barcode)}</td><td>${esc(p.supplier_name)}</td><td>${esc(p.category)}</td><td>${money(p.purchase_price)}</td><td>${money(p.retail_price)}</td><td>${money(p._mv)}</td><td>${money(p._mp)}%</td><td>${money(p.reorder_point)}</td><td>${money(p.stock_11_june)}</td><td>${money(p.stock_sarraj)}</td><td>${money(p.stock_janzour)}</td><td><b>${money(p.total_stock)}</b></td></tr>`}).join('') || '<tr><td colspan="17">لا توجد منتجات. شغل ملف استيراد قاعدة البيانات أولاً.</td></tr>';
   const sp=selectedProductCode?products.find(p=>p.code===selectedProductCode):null;
   if(q('selectedProductInfo')) q('selectedProductInfo').textContent=sp?`المحدد: ${sp.code} - ${sp.name}`:'اختر منتجًا من الجدول أولاً';
-  q('productsInfo').textContent = `عرض ${shown.length} من ${rows.length} منتج` + (rows.length>300 ? ' - اكتب في البحث لتضييق النتائج' : '');
+  q('productsInfo').textContent = `عرض ${shown.length} من ${rows.length} منتج` + (rows.length>100 ? ' - اكتب في البحث لتضييق النتائج' : '');
 }
 
 
@@ -2305,7 +2306,7 @@ function renderSaleProductPicker(){
   rows.sort((a,b)=>{const av=key==='available'?getStockQty(loc,a.code):(key==='margin_value'?marginValue(a.code,a.retail_price):(key==='margin_pct'?marginPct(a.code,a.retail_price):(a[key]??''))); const bv=key==='available'?getStockQty(loc,b.code):(key==='margin_value'?marginValue(b.code,b.retail_price):(key==='margin_pct'?marginPct(b.code,b.retail_price):(b[key]??''))); const na=parseFloat(av), nb=parseFloat(bv); const c=(!isNaN(na)&&!isNaN(nb))?na-nb:String(av).localeCompare(String(bv),'ar'); return pickerSortDir==='asc'?c:-c;});
   const shown=rows.slice(0,250);
   if(!shown.length) pickerSelectedIndex=-1; else if(pickerSelectedIndex>=shown.length) pickerSelectedIndex=shown.length-1;
-  q('salePickerBody').innerHTML=shown.map((p,i)=>{const safe=String(p.code||'').replace(/'/g,"\\'"); const available=loc?getStockQty(loc,p.code):0; return `<tr class="${i===pickerSelectedIndex?'selected-row':''}" onclick="selectSalePickerRow(${i},this)" ondblclick="addSaleProductFromPicker('${safe}',1)"><td class="ltr"><b>${esc(p.code||'')}</b><div class="mini ltr">${esc(p.barcode||p.product_no||'')}</div></td><td>${esc(p.name)}</td><td>${esc(p.brand)}<div class="mini ltr">${esc(p.model)}</div></td><td>${esc(p.color)}</td><td>${esc(p.supplier_name)}</td><td class="${available>0?'stock-positive':available<0?'stock-negative':''}"><b>${money(available)}</b></td><td>${money(p.retail_price)}</td><td>${money(marginValue(p.code,p.retail_price))}</td><td>${money(marginPct(p.code,p.retail_price))}%</td><td><button class="btn secondary" type="button" onclick="event.stopPropagation();addSaleProductFromPicker('${safe}')">إضافة</button></td></tr>`}).join('') || '<tr><td colspan="10">لا توجد منتجات مطابقة للبحث أو الفلاتر.</td></tr>';
+  q('salePickerBody').innerHTML=shown.map((p,i)=>{const safe=String(p.code||'').replace(/'/g,"\\'"); const available=loc?getStockQty(loc,p.code):0; return `<tr class="${i===pickerSelectedIndex?'selected-row':''}" onclick="selectSalePickerRow(${i},this)" ondblclick="addSaleProductFromPicker('${safe}',1)"><td class="ltr"><b>${esc(p.code||'')}</b><div class="mini ltr">${esc(p.barcode||p.product_no||'')}</div></td><td>${esc(p.name)}</td><td>${esc(p.brand)}<div class="mini ltr">${esc(p.model)}</div></td><td>${esc(p.color)}</td><td>${esc(p.supplier_name)}</td><td class="${available>0?'stock-positive':available<0?'stock-negative':''}"><b>${money(available)}</b></td><td>${money(p.retail_price)}</td><td>${money(p._mv)}</td><td>${money(p._mp)}%</td><td><button class="btn secondary" type="button" onclick="event.stopPropagation();addSaleProductFromPicker('${safe}')">إضافة</button></td></tr>`}).join('') || '<tr><td colspan="10">لا توجد منتجات مطابقة للبحث أو الفلاتر.</td></tr>';
   q('salePickerInfo').textContent=`عرض ${shown.length} من ${rows.length} منتج` + (rows.length>250?' - استخدم البحث أو الفلاتر لتضييق النتائج':'');
   setupTableSorting();
 }
@@ -4144,6 +4145,10 @@ function buildProductCostIndex(){
   const acc=new Map();
   for(const it of (purchaseItems||[])){ const q=Number(it.qty||0); if(q>0){ const k=String(it.product_code||'').trim().toLowerCase(); if(!k) continue; const o=acc.get(k); if(o){o.qty+=q; o.total+=Number(it.line_total||0);} else acc.set(k,{qty:q,total:Number(it.line_total||0)}); } }
   for(const [k,o] of acc){ if(o.qty>0){ const avg=o.total/o.qty; if(avg>0) productCostCache.set(k,avg); } }
+  const hist=new Map();
+  for(const s of (saleItems||[])){ const c=Number(s.unit_cost_at_sale||0); if(c>0){ const k=String(s.product_code||'').trim().toLowerCase(); if(!k||productCostCache.has(k)) continue; const o=hist.get(k); if(o){o.sum+=c;o.n++;} else hist.set(k,{sum:c,n:1}); } }
+  for(const [k,o] of hist){ if(o.n>0) productCostCache.set(k,o.sum/o.n); }
+  for(const p of products){ const k=String(p.code||'').trim().toLowerCase(); if(k && !productCostCache.has(k)){ const v=Number(p.purchase_price||p.cost||0); if(v>0) productCostCache.set(k,v); } }
 }
 function productCost(code){
   const key=String(code||'').split('|')[0].trim().toLowerCase();
