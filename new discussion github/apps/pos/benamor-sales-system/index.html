@@ -519,6 +519,7 @@
       <button data-tab="purchases"><i class="ti ti-receipt"></i><span>فواتير الشراء</span></button>
       <button data-tab="stock"><i class="ti ti-stack-2"></i><span>المخزون الحالي</span></button>
       <button data-tab="stockCount"><i class="ti ti-clipboard-check"></i><span>الجرد الفعلي</span></button>
+      <button data-tab="composites"><i class="ti ti-package"></i><span>المنتجات المركبة</span></button>
       <button data-tab="transfers"><i class="ti ti-arrows-exchange"></i><span>تحويلات المخزون</span></button>
       <button data-tab="locations"><i class="ti ti-building-warehouse"></i><span>الفروع والمخازن</span></button>
 
@@ -636,7 +637,7 @@
             <div class="row"><button class="btn" id="productSubmitBtn" type="submit">حفظ المنتج</button><button class="btn secondary" type="button" onclick="duplicateSelectedProduct()">نسخ المنتج</button><button class="btn secondary" type="button" onclick="resetProductForm()">تفريغ</button></div>
           </form>
           <p class="mini">يمكنك إضافة التصنيف عند إنشاء المنتج. إذا كتبت كود منتج موجود سيتم تعديل بياناته.</p>
-          <div id="productComponentsSection" style="margin-top:14px;border-top:2px solid var(--border);padding-top:12px">
+          <div id="productComponentsSection" class="hidden" style="margin-top:14px;border-top:2px solid var(--border);padding-top:12px">
             <h3 style="font-size:15px;margin:0 0 6px;color:var(--blue)">📦 مكوّنات المنتج المركّب</h3>
             <p class="mini">أضف مكوّنات ليصبح هذا المنتج مركّباً. عند بيعه تُضاف مكوّناته للفاتورة بأسعار معدّلة، ويُخصم المخزون من المكوّنات فقط.</p>
             <div class="row" style="margin:8px 0">
@@ -1371,6 +1372,14 @@
           <div class="table-scroll" style="max-height:70vh"><table><thead><tr><th>الوقت</th><th>المستخدم</th><th>الإجراء</th><th>التفاصيل</th></tr></thead><tbody id="auditLogBody"></tbody></table></div>
         </div>
       </section>
+
+      <section id="composites" class="section">
+        <div class="panel">
+          <div class="tools"><h2>المنتجات المركبة</h2><button class="btn secondary" onclick="loadAll()">تحديث</button></div>
+          <p class="muted">قائمة المنتجات المركّبة ومكوّناتها. المخزون الافتراضي = أقل كمية متوفرة من المكوّنات.</p>
+          <div class="table-scroll"><table><thead><tr><th>الكود</th><th>الاسم</th><th>سعر البيع</th><th>التكلفة</th><th>المخزون الافتراضي</th><th>المكوّنات</th><th>إجراء</th></tr></thead><tbody id="compositesBody"></tbody></table></div>
+        </div>
+      </section>
     </main>
 
   </div>
@@ -1901,7 +1910,7 @@ async function loadAll(){
   finally{showLoading(false);window.__busy=false}
 }
 
-function renderAll(){renderDashboard();renderLocations();renderProductDatalist();renderProducts();renderSuppliers();renderCustomers();fillSupplierSelects();renderLedger();renderCustomerLedger();renderPayments();renderSales();renderProformas();renderPurchases();renderStock();renderTransfers();renderFinance();renderReports();renderRoles();renderStatusBar();renderSettingsExpenseCategories();renderProductOptionSettings();refreshAuditLog();applyPermissions();setTimeout(setupTableSorting,0)}
+function renderAll(){renderDashboard();renderLocations();renderProductDatalist();renderProducts();renderSuppliers();renderCustomers();fillSupplierSelects();renderLedger();renderCustomerLedger();renderPayments();renderSales();renderProformas();renderPurchases();renderStock();renderTransfers();renderFinance();renderReports();renderRoles();renderStatusBar();renderSettingsExpenseCategories();renderProductOptionSettings();refreshAuditLog();renderComposites();applyPermissions();setTimeout(setupTableSorting,0)}
 function renderDashboard(){
   q('branchesCount').textContent=locations.filter(x=>x.location_type==='branch').length;
   q('warehousesCount').textContent=locations.filter(x=>x.location_type==='warehouse').length;
@@ -1960,11 +1969,11 @@ function resolveSelectedLoginBranch(selectedValue, selectedText){
 
 const ROLE_LABELS={admin:'مدير',seller_11:'بائع فرع 11 يونيو',seller_sarraj:'بائع فرع السراج',sales_purchase:'بيع وشراء الفرعين',warehouse:'مخزن',accountant:'محاسب',viewer:'مشاهدة فقط'};
 const ROLE_TABS={
-  admin:['dashboard','locations','products','suppliers','ledger','payments','sales','salesList','proformas','customers','purchases','stock','stockCount','transfers','expensesQuick','dailyCashClosing','finance','reports','auditLog','users','settings'],
+  admin:['dashboard','locations','products','suppliers','ledger','payments','sales','salesList','proformas','customers','purchases','stock','stockCount','composites','transfers','expensesQuick','dailyCashClosing','finance','reports','auditLog','users','settings'],
   seller_11:['dashboard','products','sales','salesList','proformas','stock','expensesQuick','dailyCashClosing'],
   seller_sarraj:['dashboard','products','sales','salesList','proformas','stock','expensesQuick','dailyCashClosing'],
-  sales_purchase:['dashboard','products','suppliers','sales','salesList','proformas','customers','purchases','stock','stockCount','expensesQuick','dailyCashClosing'],
-  warehouse:['dashboard','products','stock','stockCount','transfers','purchases'],
+  sales_purchase:['dashboard','products','suppliers','sales','salesList','proformas','customers','purchases','stock','stockCount','composites','expensesQuick','dailyCashClosing'],
+  warehouse:['dashboard','products','stock','stockCount','composites','transfers','purchases'],
   accountant:['dashboard','suppliers','ledger','payments','customers','expensesQuick','dailyCashClosing','finance','reports','auditLog'],
   viewer:['dashboard','products','stock','reports']
 };
@@ -2372,7 +2381,7 @@ function addSaleProductFromPicker(code,qtyOverride=null){
 }
 
 function resetProductForm(){
-  editingProductComponents=[]; if(q('productComponentsBody'))renderProductComponents();
+  editingProductComponents=[]; if(q('productComponentsBody'))renderProductComponents(); const psec=q('productComponentsSection'); if(psec)psec.classList.add('hidden');
   productFormMode='create'; editingProductCode=null;
   q('productForm').reset(); q('productPurchasePrice').value=0; q('productRetailPrice').value=0; q('productReorderPoint').value=0;
   q('productSubmitBtn').textContent='حفظ المنتج'; q('productCode').readOnly=false;
@@ -2385,6 +2394,7 @@ function editProduct(code){
   q('productBrand').value=p.brand||''; q('productModel').value=p.model||''; q('productColor').value=p.color||''; q('productBarcode').value=p.barcode||''; q('productReorderPoint').value=Number(p.reorder_point||0); q('productPurchasePrice').value=Number(p.purchase_price||0); q('productRetailPrice').value=Number(p.retail_price||0); q('productWholesalePrice').value=Number(p.wholesale_price||0);
   editingProductComponents=compositeItems.filter(ci=>ci.composite_code===p.code).map(ci=>({code:ci.component_code,name:ci.component_name||ci.component_code,qty:Number(ci.qty||1)}));
   renderProductComponents();
+  const sec=q('productComponentsSection'); if(sec)sec.classList.toggle('hidden',!editingProductComponents.length);
   const sup=suppliers.find(s=>s.name===p.supplier_name); q('productSupplier').value=sup?.id||'';
   q('productSubmitBtn').textContent='حفظ تعديل المنتج';
   q('productCode').readOnly=true;
@@ -4904,6 +4914,7 @@ const CTX_BUILDERS={
       {label:'نسخ المنتج',icon:'ti-copy',action:()=>duplicateProduct(code)},
       {label:'حركات المنتج',icon:'ti-history',action:()=>openSelectedProductMovements()},
       {sep:true},
+      {label:'تحويل إلى منتج مركّب',icon:'ti-package',action:()=>{convertToComposite(code)}},
       {label:'إضافة إلى فاتورة بيع',icon:'ti-shopping-cart-plus',action:()=>{if(!p)return; openTab('sales'); addOrIncrementSaleProduct(p,1); toast('تمت إضافة المنتج إلى فاتورة البيع');}}];
   },
   salePickerBody(tr){const code=(tr.children[0]?.querySelector('b')?.textContent||tr.children[0]?.innerText||'').split(/\s+/)[0].trim(); if(!code) return []; const p=products.find(x=>String(x.code||'').toLowerCase()===String(code).toLowerCase());
@@ -5196,6 +5207,26 @@ function getCompositeVirtualStock(code){
     if(possible<minStock)minStock=possible;
   }
   return minStock===Infinity?0:minStock;
+}
+
+function convertToComposite(code){
+  const p=products.find(x=>String(x.code)===String(code)); if(!p){toast('لم يتم العثور على المنتج','warn');return;}
+  editProduct(code);
+  const sec=q('productComponentsSection'); if(sec)sec.classList.remove('hidden');
+  toast('أضف مكوّنات هذا المنتج ثم احفظ ليصبح مركّباً','info');
+  q('componentCodeInput')?.focus();
+}
+function renderComposites(){
+  const body=q('compositesBody'); if(!body)return;
+  const codes=[...new Set(compositeItems.map(ci=>ci.composite_code))];
+  body.innerHTML=codes.map(code=>{
+    const p=products.find(x=>x.code===code); if(!p)return '';
+    const comps=compositeItems.filter(ci=>ci.composite_code===code);
+    const cost=comps.reduce((a,ci)=>{const cp=products.find(x=>x.code===ci.component_code);return a+(Number(cp?.purchase_price||0)*Number(ci.qty||1));},0);
+    const vStock=getCompositeVirtualStock(code);
+    const safe=String(code||'').replace(/'/g,"\\'");
+    return `<tr><td class="ltr"><b>${esc(code)}</b></td><td>${esc(p.name)}</td><td><b>${money(p.retail_price)}</b></td><td>${money(cost)}</td><td><b>${vStock!==null?vStock:'—'}</b></td><td class="mini">${comps.map(ci=>`${esc(ci.component_name||ci.component_code)}×${Number(ci.qty||1)}`).join('، ')}</td><td><button class="btn secondary" type="button" onclick="editProduct('${safe}')">تعديل المكوّنات</button></td></tr>`;
+  }).join('')||'<tr><td colspan="7">لا توجد منتجات مركبة. اضغط بزر الفأرة الأيمن على منتج واختر «تحويل إلى منتج مركّب».</td></tr>';
 }
 
 function setToday(){const d=new Date().toISOString().slice(0,10); q('paymentDate').value=d; q('purchaseDate').value=d; q('transferDate').value=d; q('saleDate').value=d; if(q('proformaDate')) q('proformaDate').value=d; q('customerPaymentDate').value=d; if(q('dailyCashDateFrom')) q('dailyCashDateFrom').value=d; if(q('dailyCashDateTo')) q('dailyCashDateTo').value=d; if(q('expenseLocation')&&appUser?.branch_id&&!q('expenseLocation').value) q('expenseLocation').value=appUser.branch_id; ['financeTransferDate','expenseDate','salaryPaymentDate'].forEach(id=>{if(q(id))q(id).value=d}); if(q('reportTo')) q('reportTo').value=d; if(q('reportFrom') && !q('reportFrom').value){const first=new Date(); first.setDate(1); q('reportFrom').value=first.toISOString().slice(0,10)}}
