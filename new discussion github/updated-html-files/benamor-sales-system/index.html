@@ -636,6 +636,16 @@
             <div class="row"><button class="btn" id="productSubmitBtn" type="submit">حفظ المنتج</button><button class="btn secondary" type="button" onclick="duplicateSelectedProduct()">نسخ المنتج</button><button class="btn secondary" type="button" onclick="resetProductForm()">تفريغ</button></div>
           </form>
           <p class="mini">يمكنك إضافة التصنيف عند إنشاء المنتج. إذا كتبت كود منتج موجود سيتم تعديل بياناته.</p>
+          <div id="productComponentsSection" style="margin-top:14px;border-top:2px solid var(--border);padding-top:12px">
+            <h3 style="font-size:15px;margin:0 0 6px;color:var(--blue)">📦 مكوّنات المنتج المركّب</h3>
+            <p class="mini">أضف مكوّنات ليصبح هذا المنتج مركّباً. عند بيعه تُضاف مكوّناته للفاتورة بأسعار معدّلة، ويُخصم المخزون من المكوّنات فقط.</p>
+            <div class="row" style="margin:8px 0">
+              <input id="componentCodeInput" class="ltr" placeholder="كود المكوّن..." style="max-width:180px" list="productsDatalist">
+              <input id="componentQtyInput" type="number" value="1" min="1" style="max-width:80px;text-align:center">
+              <button class="btn secondary" type="button" onclick="addProductComponent()">+ إضافة مكوّن</button>
+            </div>
+            <div id="productComponentsBody"></div>
+          </div>
         </div>
         <div class="panel">
           <div class="tools">
@@ -1541,7 +1551,7 @@ loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
 const SUPABASE_KEY=APP_CONFIG.supabaseKey;
 function authBearer(){return (authSession&&authSession.access_token)||SUPABASE_KEY} const H = { apikey: SUPABASE_KEY, get Authorization(){return `Bearer ${authBearer()}`}, 'Content-Type':'application/json', Prefer:'return=representation' };
-let locations=[], suppliers=[], ledger=[], payments=[], stock=[], purchases=[], purchaseItems=[], products=[], transfers=[], sales=[], saleItems=[], salePayments=[], proformas=[], proformaItems=[], saleReturns=[], saleReturnItems=[], stockMovements=[], customers=[], customerLedger=[], userRoles=[], financeAccounts=[], financeMovements=[], dailyCashClosings=[], expenseCategories=[], expenses=[], employees=[], salaryPayments=[];
+let locations=[], suppliers=[], ledger=[], payments=[], stock=[], purchases=[], purchaseItems=[], products=[], transfers=[], sales=[], saleItems=[], salePayments=[], proformas=[], proformaItems=[], saleReturns=[], saleReturnItems=[], stockMovements=[], customers=[], customerLedger=[], userRoles=[], financeAccounts=[], financeMovements=[], dailyCashClosings=[], expenseCategories=[], expenses=[], employees=[], salaryPayments=[], compositeItems=[];
 let appUser=JSON.parse(localStorage.getItem('posUser')||'null'), authSession=JSON.parse(localStorage.getItem('posAuthSession')||'null'), currentRole=null;
 let editingPurchaseId=null, originalPurchase=null, originalPurchaseItems=[];
 let editingTransferId=null, originalTransfer=null, originalTransferItems=[];
@@ -1855,7 +1865,7 @@ async function loadAll(){
   if(!products.length){ const _c=loadEssentialCache(); if(_c) applyEssentialCache(_c); }
   try{
     showLoading(true);
-    [locations, suppliers, ledger, payments, stock, purchases, purchaseItems, products, transfers, sales, saleItems, salePayments, proformas, proformaItems, saleReturns, saleReturnItems, stockMovements, customers, customerLedger, userRoles, financeAccounts, financeMovements, dailyCashClosings, expenseCategories, expenses, employees, salaryPayments] = await Promise.all([
+    [locations, suppliers, ledger, payments, stock, purchases, purchaseItems, products, transfers, sales, saleItems, salePayments, proformas, proformaItems, saleReturns, saleReturnItems, stockMovements, customers, customerLedger, userRoles, financeAccounts, financeMovements, dailyCashClosings, expenseCategories, expenses, employees, salaryPayments, compositeItems] = await Promise.all([
       api('pos_locations',{qs:'?select=*&order=name.asc'}),
       api('pos_supplier_balances',{qs:'?select=*&order=name.asc'}),
       api('pos_supplier_ledger',{qs:'?select=*&order=entry_date.desc,created_at.desc'}),
@@ -1882,7 +1892,8 @@ async function loadAll(){
       apiAll('pos_expense_categories','?select=*&order=name.asc').catch(e=>{console.warn('expense categories not setup yet',e); return []}),
       apiAll('pos_expenses','?select=*&order=expense_date.desc,created_at.desc&limit=100').catch(e=>{console.warn('expenses not setup yet',e); return []}),
       apiAll('pos_employees','?select=*&order=name.asc').catch(e=>{console.warn('employees not setup yet',e); return []}),
-      apiAll('pos_salary_payments','?select=*&order=payment_date.desc,created_at.desc&limit=100').catch(e=>{console.warn('salary payments not setup yet',e); return []})
+      apiAll('pos_salary_payments','?select=*&order=payment_date.desc,created_at.desc&limit=100').catch(e=>{console.warn('salary payments not setup yet',e); return []}),
+      apiAll('pos_composite_items','?select=*&order=created_at.asc').catch(e=>{console.warn('composite items not setup yet',e); return []})
     ]);
     ['productCategoryFilter','productBrandFilter','productColorFilter','productSupplierFilter','stockCategoryFilter','stockBrandFilter','stockSupplierFilter'].forEach(id=>{if(q(id)) q(id).dataset.ready='';});
     buildProductCostIndex(); buildProductSearchIndex(); renderAll(); saveEssentialCache(); setSyncState('online','متصل - تم تحديث البيانات'); gDriveMaybeAuto();
@@ -2361,6 +2372,7 @@ function addSaleProductFromPicker(code,qtyOverride=null){
 }
 
 function resetProductForm(){
+  editingProductComponents=[]; if(q('productComponentsBody'))renderProductComponents();
   productFormMode='create'; editingProductCode=null;
   q('productForm').reset(); q('productPurchasePrice').value=0; q('productRetailPrice').value=0; q('productReorderPoint').value=0;
   q('productSubmitBtn').textContent='حفظ المنتج'; q('productCode').readOnly=false;
@@ -2371,6 +2383,8 @@ function editProduct(code){
   document.querySelector('[data-tab="products"]').click();
   q('productCode').value=p.code||''; q('productName').value=p.name||''; q('productCategory').value=p.category||'';
   q('productBrand').value=p.brand||''; q('productModel').value=p.model||''; q('productColor').value=p.color||''; q('productBarcode').value=p.barcode||''; q('productReorderPoint').value=Number(p.reorder_point||0); q('productPurchasePrice').value=Number(p.purchase_price||0); q('productRetailPrice').value=Number(p.retail_price||0); q('productWholesalePrice').value=Number(p.wholesale_price||0);
+  editingProductComponents=compositeItems.filter(ci=>ci.composite_code===p.code).map(ci=>({code:ci.component_code,name:ci.component_name||ci.component_code,qty:Number(ci.qty||1)}));
+  renderProductComponents();
   const sup=suppliers.find(s=>s.name===p.supplier_name); q('productSupplier').value=sup?.id||'';
   q('productSubmitBtn').textContent='حفظ تعديل المنتج';
   q('productCode').readOnly=true;
@@ -2817,6 +2831,22 @@ function findProductByCodeOrBarcode(value){
   return products.find(p=>String(p.code||'').toLowerCase()===v || String(p.barcode||'').toLowerCase()===v) || null;
 }
 function addOrIncrementSaleProduct(p, qty=1){
+  const comps=compositeItems.filter(ci=>ci.composite_code===p.code);
+  if(comps.length>0){
+    const compProducts=comps.map(ci=>{const cp=products.find(x=>x.code===ci.component_code);return cp?{p:cp,qty:Number(ci.qty||1)*qty}:null}).filter(Boolean);
+    if(!compProducts.length){toast('لا توجد مكوّنات صالحة','warn');return;}
+    const compTotal=compProducts.reduce((a,c)=>a+Number(c.p.retail_price||0)*c.qty,0);
+    const ratio=compTotal>0?Number(p.retail_price||0)/compTotal:1;
+    compProducts.forEach(c=>{
+      const existing=[...q('saleItemsBody').querySelectorAll('tr')].find(tr=>String(tr.querySelector('.si-code')?.value||'').split('|')[0].trim().toLowerCase()===String(c.p.code).toLowerCase());
+      if(existing){const inp=existing.querySelector('.si-qty');inp.value=Number(inp.value||0)+c.qty;updateSaleTotal();return;}
+      const price=Math.round(Number(c.p.retail_price||0)*ratio*100)/100;
+      addSaleRow({product_code:c.p.code,product_name:c.p.name,qty:c.qty,unit_price:price});
+    });
+    updateSaleTotal();
+    toast(`تمت إضافة «${p.name}» بمكوّناته (${compProducts.length} أصناف)`,'success');
+    return;
+  }
   const rows=[...q('saleItemsBody').querySelectorAll('tr')];
   const existing=rows.find(tr=>String(tr.querySelector('.si-code')?.value||'').trim().toLowerCase()===String(p.code||'').toLowerCase());
   if(existing){const inp=existing.querySelector('.si-qty'); inp.value=Number(inp.value||0)+Number(qty||1); updateSaleTotal(); updateSaleAvailable(inp); return;}
@@ -3932,7 +3962,7 @@ q('productForm').addEventListener('submit', async e=>{
       await api('pos_products',{method:'POST',body});
       toast(productFormMode==='duplicate'?'تم إنشاء المنتج المنسوخ':'تم إنشاء المنتج');
     }
-    resetProductForm(); await loadAll();
+    await saveProductComponents(code); resetProductForm(); await loadAll();
   }catch(err){console.error(err);toast('خطأ في حفظ المنتج: '+err.message+' - إذا ظهر pos_products غير موجود شغل ملف إعداد المنتجات')}
   finally{showLoading(false);window.__busy=false}
 });
@@ -5127,6 +5157,46 @@ async function saveStockCount(){
   }catch(e){console.error(e);toast('تعذّر حفظ الجرد: '+friendlyError(e),'error')}finally{showLoading(false);window.__busy=false}
 }
 function getSaleWholesale(){return !!(q('saleWholesaleToggle')?.checked);}
+
+let editingProductComponents=[];
+function renderProductComponents(){
+  const body=q('productComponentsBody'); if(!body)return;
+  if(!editingProductComponents.length){body.innerHTML='<p class="mini">لا توجد مكوّنات — منتج عادي. أضف مكوّنات ليصبح مركّباً.</p>';return;}
+  const total=editingProductComponents.reduce((a,c)=>{const p=products.find(x=>x.code===c.code);return a+(Number(p?.purchase_price||0)*c.qty);},0);
+  body.innerHTML=`<table style="font-size:13px"><thead><tr><th>الكود</th><th>الاسم</th><th>الكمية</th><th>تكلفة الوحدة</th><th>الإجمالي</th><th></th></tr></thead><tbody>${editingProductComponents.map((c,i)=>{const p=products.find(x=>x.code===c.code);const cost=Number(p?.purchase_price||0);return `<tr><td class="ltr"><b>${esc(c.code)}</b></td><td>${esc(c.name)}</td><td style="text-align:center">${c.qty}</td><td>${money(cost)}</td><td>${money(cost*c.qty)}</td><td><button class="btn danger" type="button" onclick="removeProductComponent(${i})">حذف</button></td></tr>`}).join('')}<tr style="background:var(--table-head)"><td colspan="4"><b>التكلفة الإجمالية للمركّب</b></td><td><b>${money(total)}</b></td><td></td></tr></tbody></table>`;
+}
+function addProductComponent(){
+  const code=(q('componentCodeInput')?.value||'').trim();
+  const qty=Number(q('componentQtyInput')?.value||1)||1;
+  if(!code){toast('اكتب كود المكوّن','warn');return;}
+  const p=products.find(x=>String(x.code).toLowerCase()===code.toLowerCase());
+  if(!p){toast('لم يتم العثور على المنتج','warn');return;}
+  if(editingProductComponents.some(c=>c.code===p.code)){toast('المكوّن مضاف مسبقاً','warn');return;}
+  editingProductComponents.push({code:p.code,name:p.name,qty});
+  q('componentCodeInput').value=''; q('componentQtyInput').value=1;
+  renderProductComponents();
+}
+function removeProductComponent(i){editingProductComponents.splice(i,1);renderProductComponents();}
+async function saveProductComponents(productCode){
+  try{
+    await api('pos_composite_items',{method:'DELETE',qs:`?composite_code=eq.${encodeURIComponent(productCode)}`});
+    if(editingProductComponents.length){
+      await api('pos_composite_items',{method:'POST',body:editingProductComponents.map(c=>({composite_code:productCode,component_code:c.code,component_name:c.name,qty:c.qty}))});
+    }
+  }catch(e){console.warn('composite save failed',e);}
+}
+function isCompositeProduct(code){return compositeItems.some(ci=>ci.composite_code===code);}
+function getCompositeVirtualStock(code){
+  const comps=compositeItems.filter(ci=>ci.composite_code===code);
+  if(!comps.length) return null;
+  let minStock=Infinity;
+  for(const ci of comps){
+    const stockQty=stock.filter(s=>s.product_code===ci.component_code).reduce((a,s)=>a+Number(s.qty||0),0);
+    const possible=Math.floor(stockQty/Number(ci.qty||1));
+    if(possible<minStock)minStock=possible;
+  }
+  return minStock===Infinity?0:minStock;
+}
 
 function setToday(){const d=new Date().toISOString().slice(0,10); q('paymentDate').value=d; q('purchaseDate').value=d; q('transferDate').value=d; q('saleDate').value=d; if(q('proformaDate')) q('proformaDate').value=d; q('customerPaymentDate').value=d; if(q('dailyCashDateFrom')) q('dailyCashDateFrom').value=d; if(q('dailyCashDateTo')) q('dailyCashDateTo').value=d; if(q('expenseLocation')&&appUser?.branch_id&&!q('expenseLocation').value) q('expenseLocation').value=appUser.branch_id; ['financeTransferDate','expenseDate','salaryPaymentDate'].forEach(id=>{if(q(id))q(id).value=d}); if(q('reportTo')) q('reportTo').value=d; if(q('reportFrom') && !q('reportFrom').value){const first=new Date(); first.setDate(1); q('reportFrom').value=first.toISOString().slice(0,10)}}
 initBranding(); fillSettingsForm(); initConnectivity(); initNavGroups(); setupDecimalInputs(); setupSaleTabFlow(); setupLongPickers(); setTimeout(toggleFinancePaymentMethods,0); setToday(); q('saleLocation')?.addEventListener('change',function(){ if(this.value) localStorage.setItem('posLastSaleLocation',this.value); }); try{if(localStorage.getItem('posNavCollapsed')==='1') document.body.classList.add('nav-collapsed');}catch(e){} renderStatusBar(); renderGDriveStatus(); addTransferRow(); if(q('proformaItemsBody')) addProformaRow(); ensureSaleInvoiceNo(true); updateAuthUI(); loadLoginBranches(); setTimeout(tryRestoreActiveSaleDraft,600); if(appUser?.id && authSession?.access_token){loadAll().then(async()=>{await ensureRoleAfterLogin(); updateAuthUI(); applyPermissions(); renderCustomers();}).catch(e=>{console.error(e); logoutPOS(); toast('انتهت الجلسة، سجل الدخول مرة أخرى','warn')});}else{q('loginIdentifier')?.focus();}
