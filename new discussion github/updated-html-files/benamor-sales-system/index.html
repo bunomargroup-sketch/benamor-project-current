@@ -1346,6 +1346,7 @@
           </div></div>
           <p class="muted">اختر الفرز/المخزن، أدخل الكمية الفعلية المعدودة، ثم احفظ. الفرق يُسجَّل كحركة تسوية.</p>
           <input id="stockCountSearch" placeholder="بحث بالكود أو الاسم..." oninput="renderStockCount()" style="max-width:300px;margin-bottom:10px">
+          <select id="stockCountCategory" onchange="renderStockCount()" style="min-width:170px;margin-bottom:10px"><option value="">كل التصنيفات</option></select>
           <div class="table-scroll" style="max-height:65vh"><table><thead><tr><th>الكود</th><th>الصنف</th><th>المخزون</th><th>المعدود</th><th>الفرق</th></tr></thead><tbody id="stockCountBody"></tbody></table></div>
           <div class="row" style="margin-top:12px"><button class="btn" type="button" onclick="saveStockCount()">💾 حفظ الجرد وتسوية الفروقات</button></div>
         </div>
@@ -2819,7 +2820,7 @@ function addOrIncrementSaleProduct(p, qty=1){
   const rows=[...q('saleItemsBody').querySelectorAll('tr')];
   const existing=rows.find(tr=>String(tr.querySelector('.si-code')?.value||'').trim().toLowerCase()===String(p.code||'').toLowerCase());
   if(existing){const inp=existing.querySelector('.si-qty'); inp.value=Number(inp.value||0)+Number(qty||1); updateSaleTotal(); updateSaleAvailable(inp); return;}
-  addSaleRow({product_code:p.code,product_name:p.name,qty,unit_price:Number(p.retail_price||0)});
+  addSaleRow({product_code:p.code,product_name:p.name,qty,unit_price:(getSaleWholesale()&&Number(p.wholesale_price)>0)?Number(p.wholesale_price):Number(p.retail_price||0)});
   const last=q('saleItemsBody').lastElementChild; if(last){const note=last.querySelector('.si-product-note'); if(note) note.textContent=[p.brand,p.model,p.color,p.category].filter(Boolean).join(' - '); updateSaleAvailable(last.querySelector('.si-qty'));} renderSaleStockInfo(p.code);
 }
 
@@ -3654,6 +3655,7 @@ q('saleReturnForm').addEventListener('submit', async e=>{
     const body={sale_id:returningSaleId,return_date:q('saleReturnDate').value,location_id:returningSale.location_id,customer_id:returningSale.customer_id,refund_method:method,account_id,notes:q('saleReturnNotes').value.trim()||null};
     const idem=getDraftKey('saleReturn');
     await rpc('post_sale_return_transaction',{p_return:body,p_items:items,p_idempotency_key:idem,p_user_identifier:appUser?.identifier||''});
+    await logAction('sale_return','pos_sale_returns',body.sale_id,`${items.length} صنف - ${money(items.reduce((a,x)=>a+x.line_total,0))} ${APP_CONFIG.currency}`);
     clearDraftKey('saleReturn');
     closeSaleReturnModal(); toast('تم حفظ فاتورة المرتجع وتحديث المخزون','success'); await loadAll();
   }catch(err){console.error(err);toast('خطأ في حفظ فاتورة المرتجع: '+friendlyError(err),'error')}
@@ -3665,7 +3667,7 @@ q('saleReturnForm').addEventListener('submit', async e=>{
 
 q('financeAccountForm')?.addEventListener('submit',async e=>{e.preventDefault();if(window.__busy)return;window.__busy=true;try{showLoading(true);const body={name:q('financeAccountName').value.trim(),account_type:q('financeAccountType').value,location_id:q('financeAccountLocation').value||null,bank_name:q('financeBankName').value.trim()||null,account_no:q('financeAccountNo').value.trim()||null,opening_balance:moneyVal(q('financeOpeningBalance').value),notes:q('financeAccountNotes').value.trim()||null}; if(editingFinanceAccountId){await api('pos_finance_accounts',{method:'PATCH',qs:`?id=eq.${editingFinanceAccountId}`,body:{...body,updated_at:new Date().toISOString()}}); toast('تم تعديل الحساب');}else{await api('pos_finance_accounts',{method:'POST',body}); toast('تم حفظ الحساب');} resetFinanceAccountForm(); await loadAll();}catch(err){console.error(err);toast('خطأ في حفظ الحساب: '+err.message+' - تأكد من تشغيل SQL طرق الدفع للحسابات')}finally{showLoading(false);window.__busy=false}});
 q('financeTransferForm')?.addEventListener('submit',async e=>{e.preventDefault();if(window.__busy)return;window.__busy=true;try{showLoading(true);const from=q('financeTransferFrom').value,to=q('financeTransferTo').value,amount=moneyVal(q('financeTransferAmount').value),date=q('financeTransferDate').value,notes=q('financeTransferNotes').value.trim()||'تحويل مالي';if(from===to){toast('لا يمكن التحويل لنفس الحساب','warn');window.__busy=false;return;}validateAccountingTransfer(amount);await addFinanceMovement(from,'out','transfer_out',amount,date,'pos_finance_movements',null,notes);await addFinanceMovement(to,'in','transfer_in',amount,date,'pos_finance_movements',null,notes);e.target.reset();setToday();toast('تم حفظ التحويل');await loadAll();}catch(err){console.error(err);toast('خطأ في التحويل: '+err.message)}finally{showLoading(false);window.__busy=false}});
-q('expenseForm')?.addEventListener('submit',async e=>{e.preventDefault();if(window.__busy)return;window.__busy=true;try{showLoading(true);const method=q('expensePaymentMethod')?.value||'cash'; if(q('expenseLocation')&&appUser?.branch_id) q('expenseLocation').value=appUser.branch_id; if(method==='cash') selectDefaultExpenseAccount(); const body={expense_date:q('expenseDate').value,location_id:q('expenseLocation')?.value||appUser?.branch_id||null,account_id:q('expenseAccount').value,category_id:q('expenseCategory').value||null,title:q('expenseTitle').value.trim(),amount:moneyVal(q('expenseAmount').value),notes:q('expenseNotes').value.trim()||null}; if(!body.location_id)throw new Error('لا يوجد فرع مرتبط بالمستخدم'); if(!body.account_id)throw new Error('اختر الخزينة / الحساب'); validateAccountingOutflow('expense',body.amount);const r=await api('pos_expenses',{method:'POST',body});await addFinanceMovement(body.account_id,'out','expense',body.amount,body.expense_date,'pos_expenses',r[0].id,body.title);e.target.reset(); if(q('expenseLocation')&&appUser?.branch_id) q('expenseLocation').value=appUser.branch_id; selectDefaultExpenseAccount(); setToday();toast('تم حفظ المصروف');await loadAll();}catch(err){console.error(err);toast('خطأ في حفظ المصروف: '+err.message)}finally{showLoading(false);window.__busy=false}});
+q('expenseForm')?.addEventListener('submit',async e=>{e.preventDefault();if(window.__busy)return;window.__busy=true;try{showLoading(true);const method=q('expensePaymentMethod')?.value||'cash'; if(q('expenseLocation')&&appUser?.branch_id) q('expenseLocation').value=appUser.branch_id; if(method==='cash') selectDefaultExpenseAccount(); const body={expense_date:q('expenseDate').value,location_id:q('expenseLocation')?.value||appUser?.branch_id||null,account_id:q('expenseAccount').value,category_id:q('expenseCategory').value||null,title:q('expenseTitle').value.trim(),amount:moneyVal(q('expenseAmount').value),notes:q('expenseNotes').value.trim()||null}; if(!body.location_id)throw new Error('لا يوجد فرع مرتبط بالمستخدم'); if(!body.account_id)throw new Error('اختر الخزينة / الحساب'); validateAccountingOutflow('expense',body.amount);const r=await api('pos_expenses',{method:'POST',body});await logAction('expense','pos_expenses',r[0].id,`${body.title} - ${money(body.amount)} ${APP_CONFIG.currency}`);await addFinanceMovement(body.account_id,'out','expense',body.amount,body.expense_date,'pos_expenses',r[0].id,body.title);e.target.reset(); if(q('expenseLocation')&&appUser?.branch_id) q('expenseLocation').value=appUser.branch_id; selectDefaultExpenseAccount(); setToday();toast('تم حفظ المصروف');await loadAll();}catch(err){console.error(err);toast('خطأ في حفظ المصروف: '+err.message)}finally{showLoading(false);window.__busy=false}});
 q('employeeForm')?.addEventListener('submit',async e=>{e.preventDefault();if(window.__busy)return;window.__busy=true;try{showLoading(true);await api('pos_employees',{method:'POST',body:{name:q('employeeName').value.trim(),phone:q('employeePhone').value.trim()||null,position:q('employeePosition').value.trim()||null,monthly_salary:moneyVal(q('employeeMonthlySalary').value)}});e.target.reset();toast('تم حفظ الموظف');await loadAll();}catch(err){console.error(err);toast('خطأ في حفظ الموظف: '+err.message)}finally{showLoading(false);window.__busy=false}});
 q('salaryPaymentForm')?.addEventListener('submit',async e=>{e.preventDefault();if(window.__busy)return;window.__busy=true;try{showLoading(true);const body={employee_id:q('salaryEmployee').value,account_id:q('salaryAccount').value,payment_date:q('salaryPaymentDate').value,period:q('salaryPeriod').value.trim()||null,amount:moneyVal(q('salaryAmount').value),notes:q('salaryNotes').value.trim()||null};validateAccountingOutflow('salary',body.amount);const r=await api('pos_salary_payments',{method:'POST',body});await addFinanceMovement(body.account_id,'out','salary',body.amount,body.payment_date,'pos_salary_payments',r[0].id,'مرتب موظف');e.target.reset();setToday();toast('تم دفع المرتب');await loadAll();}catch(err){console.error(err);toast('خطأ في دفع المرتب: '+err.message)}finally{showLoading(false);window.__busy=false}});
 
@@ -3766,10 +3768,12 @@ async function deleteCustomer(id){
     if(hasSales||hasBalance){
       // لدى الزبون فواتير/رصيد: لا نحذف نهائيًا حتى لا نُتلف سجل الديون (يُحذف كشف الحساب تلقائيًا بسبب القيد المرجعي). نعطّله بدلًا من ذلك.
       await api('pos_customers',{method:'PATCH',qs:`?id=eq.${id}`,body:{active:false,updated_at:new Date().toISOString()}});
+      await logAction('customer_deactivate','pos_customers',id,`تعطيل: ${c.name} - ${c.phone||''}`);
       const reasons=[]; if(hasSales) reasons.push('لديه فواتير بيع'); if(hasBalance) reasons.push(`لديه رصيد ${money(c.balance)} ${APP_CONFIG.currency}`);
       toast('لا يمكن الحذف النهائي ('+reasons.join('، ')+') — تم تعطيل الزبون وإخفاؤه. أظهره بخانة "إظهار المعطّلين" ثم فعّله إن لزم.','warn');
     }else{
       await api('pos_customers',{method:'DELETE',qs:`?id=eq.${id}`});
+      await logAction('customer_delete','pos_customers',id,`حذف نهائي: ${c.name} - ${c.phone||''}`);
       toast('تم حذف الزبون نهائيًا','success');
     }
     if(editingCustomerId===id) resetCustomerForm();
@@ -3791,6 +3795,7 @@ q('customerForm').addEventListener('submit', async e=>{
     }
     if(editingCustomerId){
       await api('pos_customers',{method:'PATCH',qs:`?id=eq.${editingCustomerId}`,body:{...body,updated_at:new Date().toISOString()}});
+      await logAction('customer_edit','pos_customers',editingCustomerId,`تعديل زبون: ${body.name} - ${body.phone||''}`);
       toast('تم تعديل بيانات الزبون','success');
     }else{
       const opening=Math.abs(moneyVal(q('customerOpening').value));
@@ -4146,6 +4151,7 @@ q('transferForm').addEventListener('submit', async e=>{
     if(!editingTransferId){
       const idem=getDraftKey('transfer');
       const saved=await rpc('post_stock_transfer_transaction',{p_transfer:body,p_items:items,p_idempotency_key:idem,p_user_identifier:appUser?.identifier||''});
+      await logAction('transfer','pos_stock_transfers',saved.id,`${items.length} صنف - ${locations.find(l=>l.id===from)?.name||''} → ${locations.find(l=>l.id===to)?.name||''}`);
       clearDraftKey('transfer');
       transferId=saved.id;
       resetTransferForm(); toast('تم حفظ التحويل وتحديث المخزون','success'); await loadAll();
@@ -4599,7 +4605,7 @@ async function saveDailyCashClosing(){
   const body=dailyCashClosingBody(d,notes);
   try{
     showLoading(true);
-    if(existing){await api('pos_daily_cash_closings',{method:'PATCH',qs:`?id=eq.${existing.id}`,body}); toast('تم تحديث إغلاق اليوم','success');}
+    if(existing){await api('pos_daily_cash_closings',{method:'PATCH',qs:`?id=eq.${existing.id}`,body}); await logAction('closing_update','pos_daily_cash_closings',existing.id,`${d.branchName} - ${d.date} - كاش ${money(d.cashRemaining)}`); toast('تم تحديث إغلاق اليوم','success');}
     else {await api('pos_daily_cash_closings',{method:'POST',body}); toast('تم حفظ إغلاق اليوم','success');}
     dailyCashClosings=await apiAll('pos_daily_cash_closings','?select=*&order=closing_date.desc,created_at.desc&limit=100');
     renderDailyCashReport();
@@ -4638,11 +4644,13 @@ async function settleDailyCashDifference(){
       if(!cust){const created=await api('pos_customers',{method:'POST',body:{name:custName,active:false,notes:'زبون آلي لتتبع عجز الصندوق على المسؤولين'}}); cust=created[0]; customers.push(cust);}
       await api('pos_customer_ledger',{method:'POST',body:{customer_id:cust.id,entry_date:d.date,entry_type:'adjustment',description:`عجز صندوق يوم ${d.date} - فرع ${d.branchName} - المسؤول: ${appUser?.identifier||''}${reason.trim()?' - '+reason.trim():''}`,debit:amt,credit:0}});
       await addFinanceMovement(cashAccount.id,'out','cash_shortage',amt,d.date,'pos_daily_cash_closings',null,`عجز صندوق - ${d.branchName} - ${d.date} - المسؤول: ${appUser?.identifier||''}${reason.trim()?' - '+reason.trim():''}`);
+      await logAction('settle_shortage','pos_finance_movements',null,`عجز ${money(amt)} ${APP_CONFIG.currency} - دين على ${custName} - ${reason.trim()}`);
       toast(`تمت تسوية العجز ${money(amt)} ${APP_CONFIG.currency} كدين على «${custName}»`,'success');
     }else{
       // زيادة = إيراد يُدخل إلى الخزينة
       const amt=diff;
       await addFinanceMovement(cashAccount.id,'in','cash_surplus',amt,d.date,'pos_daily_cash_closings',null,`زيادة صندوق - ${d.branchName} - ${d.date}${reason.trim()?' - '+reason.trim():''}`);
+      await logAction('settle_surplus','pos_finance_movements',null,`زيادة ${money(amt)} ${APP_CONFIG.currency} - ${reason.trim()}`);
       toast(`تمت تسوية الزيادة ${money(amt)} ${APP_CONFIG.currency} كإيراد في الخزينة`,'success');
     }
     await loadAll();
@@ -5093,8 +5101,15 @@ function renderStockCount(){
   const locEl=q('stockCountLocation'); if(!locEl)return;
   if(!locEl.dataset.ready){locEl.innerHTML=locations.map(l=>`<option value="${l.id}">${esc(l.name)}</option>`).join(''); if(appUser?.branch_id) locEl.value=appUser.branch_id; locEl.dataset.ready='1';}
   const loc=locEl.value; if(!loc){q('stockCountBody').innerHTML='<tr><td colspan="5">اختر الفرع.</td></tr>';return;}
+  const catEl=q('stockCountCategory');
+  if(catEl && !catEl.dataset.ready){const cats=[...new Set(products.map(p=>p.category).filter(Boolean))].sort();catEl.innerHTML='<option value="">كل التصنيفات</option>'+cats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');catEl.dataset.ready='1';}
   const term=(q('stockCountSearch')?.value||'').trim().toLowerCase();
-  const items=stock.filter(s=>s.location_id===loc).filter(s=>!term||(s.product_code||'').toLowerCase().includes(term)||(s.product_name||'').toLowerCase().includes(term));
+  const cat=catEl?.value||'';
+  const items=stock.filter(s=>s.location_id===loc).filter(s=>{
+    if(term&&!(s.product_code||'').toLowerCase().includes(term)&&!(s.product_name||'').toLowerCase().includes(term))return false;
+    if(cat){const p=products.find(x=>x.code===s.product_code);return p&&p.category===cat;}
+    return true;
+  });
   q('stockCountBody').innerHTML=items.map(s=>{const sc=String(s.product_code||'').replace(/'/g,'');const counted=stockCountData[sc];const diff=(counted!==undefined&&counted!=='')?(Number(counted)-Number(s.qty||0)):null;return `<tr><td class="ltr"><b>${esc(s.product_code)}</b></td><td>${esc(s.product_name)}</td><td>${money(s.qty)}</td><td><input type="number" step="any" value="${counted??''}" placeholder="${money(s.qty)}" style="max-width:100px;text-align:center" oninput="stockCountData['${sc}']=this.value;renderStockCountDiff(this,'${sc}',${Number(s.qty||0)})"></td><td id="scd_${sc}" class="${diff!==null&&diff>0?'stock-positive':diff<0?'stock-negative':''}">${diff!==null?money(diff):''}</td></tr>`}).join('')||'<tr><td colspan="5">لا توجد أصناف.</td></tr>';
 }
 function renderStockCountDiff(inp,code,sysQty){const el=q('scd_'+code);if(!el)return;if(inp.value===''){el.textContent='';el.className='';return;}const d=Number(inp.value)-Number(sysQty);el.textContent=money(d);el.className=d>0?'stock-positive':d<0?'stock-negative':'';}
