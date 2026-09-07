@@ -3534,15 +3534,22 @@ function renderProductComponents(){
   body.innerHTML=`<table style="font-size:13px"><thead><tr><th>الكود</th><th>الاسم</th><th>الكمية</th><th>تكلفة الوحدة</th><th>الإجمالي</th><th></th></tr></thead><tbody>${editingProductComponents.map((c,i)=>{const p=products.find(x=>x.code===c.code);const cost=Number(p?.purchase_price||0);return `<tr><td class="ltr"><b>${esc(c.code)}</b></td><td>${esc(c.name)}</td><td style="text-align:center">${c.qty}</td><td>${money(cost)}</td><td>${money(cost*c.qty)}</td><td><button class="btn danger" type="button" onclick="removeProductComponent(${i})">حذف</button></td></tr>`}).join('')}<tr style="background:var(--table-head)"><td colspan="4"><b>التكلفة الإجمالية للمركّب</b></td><td><b>${money(total)}</b></td><td></td></tr></tbody></table>`;
 }
 function addProductComponent(){
-  const code=(q('componentCodeInput')?.value||'').trim();
+  const input=(q('componentCodeInput')?.value||'').trim();
   const qty=Number(q('componentQtyInput')?.value||1)||1;
-  if(!code){toast('اكتب كود المكوّن','warn');return;}
-  const p=products.find(x=>String(x.code).toLowerCase()===code.toLowerCase());
-  if(!p){toast('لم يتم العثور على المنتج','warn');return;}
+  if(!input){toast('اكتب كود أو اسم المكوّن','warn');return;}
+  const lower=input.toLowerCase();
+  const norm=normText(input);
+  const p=products.find(x=>String(x.code).toLowerCase()===lower)
+       || products.find(x=>String(x.name).toLowerCase()===lower)
+       || products.find(x=>normText(x.name)===norm)
+       || products.find(x=>normText(x.name).includes(norm)&&norm.length>=2)
+       || products.find(x=>String(x.code).toLowerCase().startsWith(lower)&&lower.length>=2);
+  if(!p){toast(`لم يتم العثور على منتج يطابق "${input}". جرّب كتابة الكود أو أول حروف من الاسم.`,'warn');return;}
   if(editingProductComponents.some(c=>c.code===p.code)){toast('المكوّن مضاف مسبقاً','warn');return;}
   editingProductComponents.push({code:p.code,name:p.name,qty});
   q('componentCodeInput').value=''; q('componentQtyInput').value=1;
   renderProductComponents();
+  toast(`تمت إضافة: ${p.name} (${p.code})`,'success');
 }
 function removeProductComponent(i){editingProductComponents.splice(i,1);renderProductComponents();}
 async function saveProductComponents(productCode){
