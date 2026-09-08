@@ -655,7 +655,7 @@ function renderProducts(){
   const key=productCols[productSortIndex]||'total_stock';
   rows.sort((a,b)=>{const va=key==='margin_value'?a._mv:(key==='margin_pct'?a._mp:(a[key]??'')), vb=key==='margin_value'?b._mv:(key==='margin_pct'?b._mp:(b[key]??'')); const na=parseFloat(va), nb=parseFloat(vb); const c=(!isNaN(na)&&!isNaN(nb))?na-nb:String(va).localeCompare(String(vb),'ar'); return productSortDir==='asc'?c:-c;});
   const shown=rows.slice(0,100);
-  q('productsBody').innerHTML = shown.map(p=>{const safe=String(p.code||'').replace(/'/g,"\\'"); const isComp=isCompositeProduct(p.code); const vS=isComp?getCompositeVirtualStock(p.code):null; const nm=isComp?esc(p.name)+' <span style="background:#ede9fe;color:#6d28d9;border-radius:6px;padding:1px 6px;font-size:10px;font-weight:800">مركّب</span>':esc(p.name); const s1=isComp?'<span style="color:#8b5cf6">—</span>':money(p.stock_11_june); const s2=isComp?'<span style="color:#8b5cf6">—</span>':money(p.stock_sarraj); const s3=isComp?'<span style="color:#8b5cf6">—</span>':money(p.stock_janzour); const st=isComp?('<b style="color:#7c3aed;background:#ede9fe;border-radius:6px;padding:2px 8px">'+(vS!==null?vS:0)+'</b>'):('<b>'+money(p.total_stock)+'</b>'); return `<tr class="${selectedProductCode===p.code?'selected-row':''}" onclick="selectProductRow('${safe}')"><td class="ltr">${esc(p.product_no)}</td><td class="ltr"><b>${esc(p.code)}</b></td><td>${nm}</td><td>${esc(p.brand)}<div class="mini ltr">${esc(p.model)}</div></td><td>${esc(p.color)}</td><td class="ltr">${esc(p.barcode)}</td><td>${esc(p.supplier_name)}</td><td>${esc(p.category)}</td><td>${money(p.purchase_price)}</td><td>${money(p.retail_price)}</td><td>${money(p._mv)}</td><td>${money(p._mp)}%</td><td>${money(p.reorder_point)}</td><td>${s1}</td><td>${s2}</td><td>${s3}</td><td>${st}</td></tr>`}).join('') || '<tr><td colspan="17">لا توجد منتجات.</td></tr>';
+  q('productsBody').innerHTML = shown.map(p=>{const safe=String(p.code||'').replace(/'/g,"\'"); return `<tr class="${selectedProductCode===p.code?'selected-row':''}" onclick="selectProductRow('${safe}')"><td class="ltr">${esc(p.product_no)}</td><td class="ltr"><b>${esc(p.code)}</b></td><td>${esc(p.name)}</td><td>${esc(p.brand)}<div class="mini ltr">${esc(p.model)}</div></td><td>${esc(p.color)}</td><td class="ltr">${esc(p.barcode)}</td><td>${esc(p.supplier_name)}</td><td>${esc(p.category)}</td><td>${money(p.purchase_price)}</td><td>${money(p.retail_price)}</td><td>${money(p._mv)}</td><td>${money(p._mp)}%</td><td>${money(p.reorder_point)}</td><td>${money(p.stock_11_june)}</td><td>${money(p.stock_sarraj)}</td><td>${money(p.stock_janzour)}</td><td><b>${money(p.total_stock)}</b></td></tr>`}).join('') || '<tr><td colspan="17">لا توجد منتجات. شغل ملف استيراد قاعدة البيانات أولاً.</td></tr>';
   const sp=selectedProductCode?products.find(p=>p.code===selectedProductCode):null;
   if(q('selectedProductInfo')) q('selectedProductInfo').textContent=sp?`المحدد: ${sp.code} - ${sp.name}`:'اختر منتجًا من الجدول أولاً';
   q('productsInfo').textContent = `عرض ${shown.length} من ${rows.length} منتج` + (rows.length>100 ? ' - اكتب في البحث لتضييق النتائج' : '');
@@ -1584,7 +1584,41 @@ async function printSale(id){
     const paid=Number(sl.paid_amount||0), balance=Number(sl.balance_due||0);
     const statusBadge=balance>0?'<span class="st st-due">آجل / متبقٍ</span>':'<span class="st st-paid">مدفوعة بالكامل</span>';
     const rows=items.map((it,i)=>`<tr><td class="n">${i+1}</td><td class="ltr">${esc(it.product_code)}</td><td>${esc(it.product_name)}</td><td class="n">${money(it.qty)}</td><td class="n">${money(it.unit_price)}</td><td class="n">${money(it.line_discount||0)}</td><td class="n"><b>${money(it.line_total)}</b></td></tr>`).join('');
-    const html=`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>فاتورة بيع ${esc(sl.invoice_no||sl.id.slice(0,8))}</title></head><body>
+    const html=`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>فاتورة بيع ${esc(sl.invoice_no||sl.id.slice(0,8))}</title><style>
+      @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap');
+      *{box-sizing:border-box}
+      body{font-family:'Cairo',Tahoma,Arial,sans-serif;margin:0;color:#0f172a;line-height:1.6;background:#f1f5f9}
+      .bar{max-width:820px;margin:14px auto 0;display:flex;justify-content:flex-end;gap:8px;padding:0 6px}
+      .pbtn{background:#1d4ed8;color:#fff;border:0;border-radius:10px;padding:10px 18px;font:inherit;font-weight:700;cursor:pointer}
+      .pbtn.ghost{background:#fff;color:#1d4ed8;border:1px solid #c7d2fe}
+      .sheet{max-width:820px;margin:14px auto;background:#fff;padding:34px 36px;border-radius:16px;box-shadow:0 10px 40px rgba(2,6,23,.12)}
+      .top{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;border-bottom:3px solid #1d4ed8;padding-bottom:18px;margin-bottom:20px}
+      .biz{display:flex;align-items:center;gap:14px}
+      .logo{width:72px;height:72px;border-radius:16px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:12px;text-align:center;padding:6px;background:linear-gradient(135deg,#1d4ed8,#2563eb)}
+      .biz h1{margin:0;color:#1d4ed8;font-size:25px}.biz .tag{color:#64748b;font-size:13px;margin-top:2px}
+      .doc{text-align:left}.doc .title{font-size:21px;font-weight:700}.doc .meta{color:#475569;font-size:13px;margin-top:6px;line-height:1.9}.doc .meta b{color:#0f172a}
+      .st{display:inline-block;border-radius:999px;padding:4px 12px;font-size:12px;font-weight:700;margin-top:8px}
+      .st-paid{background:#dcfce7;color:#166534}.st-due{background:#fee2e2;color:#991b1b}
+      .info{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:6px}
+      .cell{border:1px solid #e2e8f0;border-radius:12px;padding:9px 13px;background:#f8fafc}
+      .cell .lbl{color:#64748b;font-size:12px;margin-bottom:2px}.cell .val{font-weight:600}
+      table{width:100%;border-collapse:collapse;margin-top:18px;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden}
+      th,td{padding:11px 12px;text-align:right;border-bottom:1px solid #eef2f7}
+      th{background:#1d4ed8;color:#fff;font-weight:700;font-size:13px}
+      tbody tr:nth-child(even){background:#f8fafc}
+      .n{text-align:center;font-variant-numeric:tabular-nums}
+      .ltr{direction:ltr;text-align:center;font-family:ui-monospace,monospace}
+      .foot{display:flex;justify-content:space-between;gap:18px;margin-top:20px;align-items:flex-start}
+      .notes{flex:1;color:#475569;font-size:13px}.notes b{color:#0f172a}
+      .totals{width:300px;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden}
+      .totals .r{display:flex;justify-content:space-between;padding:9px 14px;border-bottom:1px solid #eef2f7}
+      .totals .r span{color:#475569}.totals .r b{font-variant-numeric:tabular-nums}
+      .totals .grand{background:#1d4ed8}.totals .grand span,.totals .grand b{color:#fff;font-size:17px}
+      .sign{display:flex;justify-content:space-between;gap:30px;margin-top:44px;color:#475569;font-size:13px}
+      .sign div{flex:1;border-top:1px solid #cbd5e1;padding-top:8px;text-align:center}
+      .thanks{text-align:center;color:#64748b;font-size:13px;margin-top:24px;border-top:1px dashed #cbd5e1;padding-top:14px}
+      @media print{body{background:#fff}.sheet{box-shadow:none;margin:0;max-width:none;padding:0;border-radius:0}.bar{display:none}@page{size:A4;margin:14mm}}
+    </style></head><body>
     <div class="bar"><button class="pbtn" onclick="window.print()">طباعة</button><button class="pbtn ghost" onclick="window.close()">إغلاق</button></div>
     <div class="sheet">
       <div class="top">
@@ -2966,7 +3000,23 @@ function dailyCashPrintHtml(d, meta={}){
     const dayRows=(d.days||[]).map(D=>`<tr><td>${esc(D.date)}</td><td>${D.invoiceCount}</td><td>${money(D.salesTotal)}</td><td>${money(D.cashIn)}</td><td>${money(D.cashOut)}</td><td class="${cashCls(D.cashRemaining)}">${money(D.cashRemaining)}</td></tr>`);
     const periodLabel=esc(d.dateFrom)+' ← '+esc(d.dateTo);
     return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير الخزينة للفترة — ${esc(d.branchName)}</title>
-</head><body>
+<style>
+*{box-sizing:border-box}
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap');
+body{font-family:'Cairo',Tahoma,Arial,sans-serif;color:#111;margin:20px;line-height:1.5}
+.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1d4ed8;padding-bottom:10px;margin-bottom:8px}
+.head .title{font-size:22px;font-weight:800;color:#1d4ed8}.head .sub{color:#555;font-size:12px}
+.meta{text-align:left;font-size:12px;line-height:1.8}.meta b{color:#111}
+h3{font-size:14px;margin:12px 0 4px;border-inline-start:4px solid #1d4ed8;padding-inline-start:8px}
+table{width:100%;border-collapse:collapse;margin-top:3px;font-size:11.5px}
+th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:right}th{background:#e8f0ff;font-weight:700}
+tr.totalrow td{background:#f1f5f9;font-weight:800}
+td.pos{color:#087f5b;font-weight:800}td.neg{color:#dc2626;font-weight:800}
+.baqi{border:2px solid #1d4ed8;border-radius:12px;padding:10px 14px;margin:10px 0;display:flex;justify-content:space-between;align-items:center}
+.baqi .lbl{font-size:14px;font-weight:800;color:#1d4ed8}.baqi .amt{font-size:26px;font-weight:900}
+.small{font-size:11px;color:#777}
+@media print{@page{size:A4;margin:8mm}}
+</style></head><body>
 <div class="head"><div><div class="title">${esc(APP_CONFIG.businessName)}</div><div class="sub">تقرير حالة الخزينة للفترة</div></div>
 <div class="meta">الفرع: <b>${esc(d.branchName)}</b><br>الفترة: <b>${periodLabel}</b><br>عدد الأيام: <b>${(d.days||[]).length}</b><br>المسؤول: <b>${esc(responsible)}</b><br>وقت التوليد: <b>${esc(generated)}</b></div></div>
 <h3>المداخيل (حسب طريقة الدفع)</h3><table><thead><tr><th>البيان</th><th>المبلغ</th></tr></thead><tbody>${inRows||'<tr><td colspan="2">لا توجد مداخيل.</td></tr>'}</tbody></table>
@@ -2978,7 +3028,28 @@ function dailyCashPrintHtml(d, meta={}){
 </body></html>`;
   }
   return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير الخزينة اليومية — ${esc(d.branchName)} ${esc(d.date)}</title>
-</head><body>
+<style>
+*{box-sizing:border-box}
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap');
+body{font-family:'Cairo',Tahoma,Arial,sans-serif;color:#111;margin:22px;line-height:1.6}
+.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1d4ed8;padding-bottom:12px;margin-bottom:10px}
+.head .title{font-size:24px;font-weight:800;color:#1d4ed8}.head .sub{color:#555;font-size:13px}
+.meta{text-align:left;font-size:13px;line-height:1.9}.meta b{color:#111}
+.badge{display:inline-block;background:#e8f0ff;color:#1d4ed8;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:700}
+h3{font-size:15px;margin:16px 0 6px;border-inline-start:4px solid #1d4ed8;padding-inline-start:8px}
+table{width:100%;border-collapse:collapse;margin-top:4px;font-size:12.5px}
+th,td{border:1px solid #cbd5e1;padding:6px 8px;text-align:right}th{background:#e8f0ff;font-weight:700}
+tr.totalrow td{background:#f1f5f9;font-weight:800}
+td.pos{color:#087f5b;font-weight:800}td.neg{color:#dc2626;font-weight:800}
+td.empty{text-align:center;color:#94a3b8;padding:12px}
+.baqi{border:2px solid #1d4ed8;border-radius:14px;padding:12px 14px;margin:12px 0;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.baqi .lbl{font-size:15px;font-weight:800;color:#1d4ed8}.baqi .small{font-size:11px;color:#777;font-weight:400}
+.baqi .amt{font-size:30px;font-weight:900}
+.settle{margin-top:6px}.settle .row{display:flex;gap:24px;flex-wrap:wrap}.settle .row>div{min-width:150px}.settle label{display:block;font-size:12px;color:#64748b;font-weight:700}.settle .big{font-size:20px;font-weight:900}
+.sign{display:flex;gap:60px;margin-top:40px}.sign div{flex:1;border-top:1px solid #333;text-align:center;padding-top:8px;font-size:13px}
+.small{font-size:11px;color:#777}
+@media print{@page{size:A4;margin:10mm}.no-print{display:none}}
+</style></head><body>
 <div class="head"><div><div class="title">${esc(APP_CONFIG.businessName)}</div><div class="sub">تقرير حالة الخزينة اليومية — إغلاق اليوم</div></div>
 <div class="meta">الفرع: <b>${esc(d.branchName)}</b><br>${d.isRange?('الفترة: <b>'+esc(d.dateFrom)+' ← '+esc(d.dateTo)+'</b>'):('التاريخ: <b>'+esc(d.date)+'</b>')}<br>المسؤول: <b>${esc(responsible)}</b><br>وقت التوليد: <b>${esc(generated)}</b><br>الحالة: <span class="badge">${esc(savedStatus)}</span></div></div>
 <h3>المداخيل (حسب طريقة الدفع)</h3><table><thead><tr><th>البيان</th><th>المبلغ</th></tr></thead><tbody>${inRows||'<tr><td colspan="2" class="empty">لا توجد مداخيل.</td></tr>'}</tbody></table>
@@ -3201,7 +3272,31 @@ function printReports(){
   const content=q('reports').innerHTML;
   const period=`${q('reportFrom')?.value||'—'} ← ${q('reportTo')?.value||'—'}`;
   const w=window.open('','_blank'); if(!w){toast('المتصفح منع نافذة الطباعة. اسمح بالنوافذ المنبثقة.'); return;}
-  w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقارير ${esc(APP_CONFIG.businessName)}</title></head><body>
+  w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقارير ${esc(APP_CONFIG.businessName)}</title><style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap');
+    *{box-sizing:border-box}
+    body{font-family:'Cairo',Tahoma,Arial,sans-serif;margin:0;color:#0f172a;line-height:1.6;background:#f1f5f9}
+    .bar{max-width:1000px;margin:14px auto 0;text-align:left;padding:0 6px}
+    .pbtn{background:#1d4ed8;color:#fff;border:0;border-radius:10px;padding:10px 18px;font:inherit;font-weight:700;cursor:pointer}
+    .sheet{max-width:1000px;margin:14px auto;background:#fff;padding:30px 34px;border-radius:16px;box-shadow:0 10px 40px rgba(2,6,23,.12)}
+    .top{display:flex;align-items:center;gap:14px;border-bottom:3px solid #1d4ed8;padding-bottom:16px;margin-bottom:6px}
+    .logo{width:64px;height:64px;border-radius:16px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:12px;text-align:center;padding:6px;background:linear-gradient(135deg,#1d4ed8,#2563eb)}
+    .top h1{margin:0;color:#1d4ed8;font-size:23px}.top .tag{color:#64748b;font-size:13px}
+    .tools,.row,button,input,select,.btn,.seg,.hidden{display:none!important}
+    .panel{margin:18px 0}
+    .panel h2{font-size:17px;border-right:4px solid #1d4ed8;padding-right:10px;margin:0 0 10px}
+    .cards{display:flex;flex-wrap:wrap;gap:10px}
+    .card{border:1px solid #e2e8f0;border-radius:14px;padding:13px;min-width:165px;flex:1;background:#f8fafc}
+    .card h3{margin:0 0 6px;font-size:13px;color:#64748b;font-weight:600}
+    .num{font-size:21px;font-weight:700;color:#1d4ed8;font-variant-numeric:tabular-nums}
+    .muted{color:#94a3b8;font-size:12px}
+    table{width:100%;border-collapse:collapse;margin:8px 0;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden}
+    th,td{border-bottom:1px solid #eef2f7;padding:9px 11px;text-align:right;font-size:13px}
+    th{background:#1d4ed8;color:#fff;font-weight:700}
+    tbody tr:nth-child(even){background:#f8fafc}
+    .badge{display:inline-block;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:700;background:#eef2f7;color:#334155}
+    @media print{body{background:#fff}.sheet{box-shadow:none;margin:0;max-width:none;padding:0;border-radius:0}.bar{display:none}@page{size:A4;margin:12mm}}
+  </style></head><body>
   <div class="bar"><button class="pbtn" onclick="window.print()">طباعة</button></div>
   <div class="sheet"><div class="top"><div class="logo">${esc(APP_CONFIG.businessName)}</div><div><h1>تقارير ${esc(APP_CONFIG.businessName)}</h1><div class="tag">الفترة: ${esc(period)} — تاريخ الطباعة: ${new Date().toISOString().slice(0,10)}</div></div></div>${content}</div>
   </body></html>`);
@@ -3534,22 +3629,15 @@ function renderProductComponents(){
   body.innerHTML=`<table style="font-size:13px"><thead><tr><th>الكود</th><th>الاسم</th><th>الكمية</th><th>تكلفة الوحدة</th><th>الإجمالي</th><th></th></tr></thead><tbody>${editingProductComponents.map((c,i)=>{const p=products.find(x=>x.code===c.code);const cost=Number(p?.purchase_price||0);return `<tr><td class="ltr"><b>${esc(c.code)}</b></td><td>${esc(c.name)}</td><td style="text-align:center">${c.qty}</td><td>${money(cost)}</td><td>${money(cost*c.qty)}</td><td><button class="btn danger" type="button" onclick="removeProductComponent(${i})">حذف</button></td></tr>`}).join('')}<tr style="background:var(--table-head)"><td colspan="4"><b>التكلفة الإجمالية للمركّب</b></td><td><b>${money(total)}</b></td><td></td></tr></tbody></table>`;
 }
 function addProductComponent(){
-  const input=(q('componentCodeInput')?.value||'').trim();
+  const code=(q('componentCodeInput')?.value||'').trim();
   const qty=Number(q('componentQtyInput')?.value||1)||1;
-  if(!input){toast('اكتب كود أو اسم المكوّن','warn');return;}
-  const lower=input.toLowerCase();
-  const norm=normText(input);
-  const p=products.find(x=>String(x.code).toLowerCase()===lower)
-       || products.find(x=>String(x.name).toLowerCase()===lower)
-       || products.find(x=>normText(x.name)===norm)
-       || products.find(x=>normText(x.name).includes(norm)&&norm.length>=2)
-       || products.find(x=>String(x.code).toLowerCase().startsWith(lower)&&lower.length>=2);
-  if(!p){toast(`لم يتم العثور على منتج يطابق "${input}". جرّب كتابة الكود أو أول حروف من الاسم.`,'warn');return;}
+  if(!code){toast('اكتب كود المكوّن','warn');return;}
+  const p=products.find(x=>String(x.code).toLowerCase()===code.toLowerCase());
+  if(!p){toast('لم يتم العثور على المنتج','warn');return;}
   if(editingProductComponents.some(c=>c.code===p.code)){toast('المكوّن مضاف مسبقاً','warn');return;}
   editingProductComponents.push({code:p.code,name:p.name,qty});
   q('componentCodeInput').value=''; q('componentQtyInput').value=1;
   renderProductComponents();
-  toast(`تمت إضافة: ${p.name} (${p.code})`,'success');
 }
 function removeProductComponent(i){editingProductComponents.splice(i,1);renderProductComponents();}
 async function saveProductComponents(productCode){
@@ -3589,7 +3677,7 @@ function renderComposites(){
     const cost=comps.reduce((a,ci)=>{const cp=products.find(x=>x.code===ci.component_code);return a+(Number(cp?.purchase_price||0)*Number(ci.qty||1));},0);
     const vStock=getCompositeVirtualStock(code);
     const safe=String(code||'').replace(/'/g,"\\'");
-    return `<tr><td class="ltr"><b>${esc(code)}</b></td><td>${esc(p.name)}</td><td><b>${money(p.retail_price)}</b></td><td>${money(cost)}</td><td><b style="color:#7c3aed;background:#ede9fe;border-radius:6px;padding:2px 8px">${vStock!==null?vStock:0}</b></td><td class="mini">${comps.map(ci=>`${esc(ci.component_name||ci.component_code)}×${Number(ci.qty||1)}`).join('، ')}</td><td><button class="btn secondary" type="button" onclick="editProduct('${safe}')">تعديل المكوّنات</button></td></tr>`;
+    return `<tr><td class="ltr"><b>${esc(code)}</b></td><td>${esc(p.name)}</td><td><b>${money(p.retail_price)}</b></td><td>${money(cost)}</td><td><b>${vStock!==null?vStock:'—'}</b></td><td class="mini">${comps.map(ci=>`${esc(ci.component_name||ci.component_code)}×${Number(ci.qty||1)}`).join('، ')}</td><td><button class="btn secondary" type="button" onclick="editProduct('${safe}')">تعديل المكوّنات</button></td></tr>`;
   }).join('')||'<tr><td colspan="7">لا توجد منتجات مركبة. اضغط بزر الفأرة الأيمن على منتج واختر «تحويل إلى منتج مركّب».</td></tr>';
 }
 

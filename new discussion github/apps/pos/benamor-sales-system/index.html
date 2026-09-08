@@ -167,7 +167,7 @@
             <h3 style="font-size:15px;margin:0 0 6px;color:var(--blue)">📦 مكوّنات المنتج المركّب</h3>
             <p class="mini">أضف مكوّنات ليصبح هذا المنتج مركّباً. عند بيعه تُضاف مكوّناته للفاتورة بأسعار معدّلة، ويُخصم المخزون من المكوّنات فقط.</p>
             <div class="row" style="margin:8px 0">
-              <input id="componentCodeInput" placeholder="كود أو اسم المكوّن..." style="max-width:250px" list="productsDatalist" onkeydown="if(event.key==='Enter'){event.preventDefault();addProductComponent()}">
+              <input id="componentCodeInput" class="ltr" placeholder="كود المكوّن..." style="max-width:180px" list="productsDatalist">
               <input id="componentQtyInput" type="number" value="1" min="1" style="max-width:80px;text-align:center">
               <button class="btn secondary" type="button" onclick="addProductComponent()">+ إضافة مكوّن</button>
             </div>
