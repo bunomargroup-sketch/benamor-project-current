@@ -3712,6 +3712,8 @@ function addProductComponent(){
 function removeProductComponent(i){editingProductComponents.splice(i,1);renderProductComponents();}
 async function saveProductComponents(productCode){
   try{
+    const wasComposite=compositeItems.some(ci=>ci.composite_code===productCode);
+    if(!editingProductComponents.length && !wasComposite) return;
     await api('pos_composite_items',{method:'DELETE',qs:`?composite_code=eq.${encodeURIComponent(productCode)}`});
     if(editingProductComponents.length){
       await api('pos_composite_items',{method:'POST',body:editingProductComponents.map(c=>({composite_code:productCode,component_code:c.code,component_name:c.name,qty:c.qty}))});
