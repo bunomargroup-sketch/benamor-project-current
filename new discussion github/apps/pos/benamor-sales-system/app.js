@@ -676,7 +676,7 @@ function applyProductColVisibility(shown){
     };
     return PRODUCT_COLS.filter(c=>vis(c.id)).map(c=>all[c.id]||'').join('');
   };
-  let html=`<thead><tr>${heads}</tr></thead><tbody>`;
+  let html=`<thead><tr>${heads}</tr></thead><tbody id="productsBody">`;
   html+=shown.map(p=>{
     const safe=String(p.code||'').replace(/'/g,"\\'");
     const isComp=isCompositeProduct(p.code);
@@ -684,7 +684,7 @@ function applyProductColVisibility(shown){
     return `<tr class="${selectedProductCode===p.code?'selected-row':''}" onclick="selectProductRow('${safe}')">${cells(p,isComp,vS)}</tr>`;
   }).join('');
   html+='</tbody>';
-  const table=q('productsBody')?.closest('table');
+  const table=document.querySelector('#products .product-table-wrap table');
   if(table) table.innerHTML=html;
   q('productsInfo').textContent=`عرض ${shown.length} من ${shown.length>=100?'100+':shown.length} منتج`;
 }

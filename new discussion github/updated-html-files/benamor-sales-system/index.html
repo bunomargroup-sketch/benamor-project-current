@@ -70,7 +70,7 @@
         <div class="launcher">
           <button class="launch-tile lt-orange" type="button" onclick="openTab('sales')"><i class="ti ti-shopping-cart"></i><span>فاتورة مبيعات</span></button>
           <button class="launch-tile lt-blue" type="button" onclick="openTab('purchases')"><i class="ti ti-shopping-bag"></i><span>فاتورة مشتريات</span></button>
-          <button class="launch-tile lt-green" type="button" onclick="openTab('products')"><i class="ti ti-box"></i><span>إضافة صنف</span></button>
+          <button class="launch-tile lt-green" type="button" onclick="openTab('products')"><i class="ti ti-list-search"></i><span>قائمة المنتجات</span></button>
           <button class="launch-tile lt-purple" type="button" onclick="openTab('customers')"><i class="ti ti-user-plus"></i><span>إضافة زبون</span></button>
           <button class="launch-tile lt-teal" type="button" onclick="openTab('payments')"><i class="ti ti-cash-banknote"></i><span>دفع للمورد</span></button>
           <button class="launch-tile lt-pink" type="button" onclick="openTab('salesList')"><i class="ti ti-receipt-refund"></i><span>مرتجع مبيعات</span></button>
@@ -178,7 +178,7 @@
           <div class="tools">
             <h2>قاعدة المنتجات</h2>
             <div class="row">
-              <input id="productSearch" placeholder="بحث..." oninput="debounceRenderProducts()" style="max-width:220px">
+              
               <select id="productCategoryFilter" onchange="renderProducts()" style="min-width:170px"></select>
               <select id="productBrandFilter" onchange="renderProducts()" style="min-width:150px"></select>
               <select id="productColorFilter" onchange="renderProducts()" style="min-width:140px"></select>
@@ -207,6 +207,7 @@
                   <tbody id="productsBody"></tbody>
                 </table>
               </div>
+              <div style="padding:0 0 8px 0"><input id="productSearch" placeholder="🔍 ابحث بالكود أو الاسم أو الماركة..." oninput="debounceRenderProducts()" style="width:100%;font-size:16px;font-weight:600;padding:12px 16px;border:2px solid var(--blue);border-radius:12px;background:var(--accent-soft)"></div>
               <div class="product-bottom-bar">
                 <b>بحث</b>
                 <input class="grow" id="productBottomSearch" placeholder="بحث سريع داخل المنتجات..." oninput="q('productSearch').value=this.value;debounceRenderProducts()">
