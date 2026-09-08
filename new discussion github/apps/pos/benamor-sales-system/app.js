@@ -669,9 +669,9 @@ function applyProductColVisibility(shown){
       retail:`<td>${money(p.retail_price)}</td>`,
       margin:`<td>${money(p._mv)}</td>`,
       margin_pct:`<td>${money(p._mp)}%</td>`,
-      s11:`<td>${isComp?'<span style="color:#8b5cf6">—</span>':money(p.stock_11_june)}</td>`,
-      ssr:`<td>${isComp?'<span style="color:#8b5cf6">—</span>':money(p.stock_sarraj)}</td>`,
-      sjz:`<td>${isComp?'<span style="color:#8b5cf6">—</span>':money(p.stock_janzour)}</td>`,
+      s11:`<td>${isComp?'<b style="color:#7c3aed">'+(vS||0)+'</b>':money(p.stock_11_june)}</td>`,
+      ssr:`<td>${isComp?'<b style="color:#7c3aed">'+(vS||0)+'</b>':money(p.stock_sarraj)}</td>`,
+      sjz:`<td>${isComp?'<b style="color:#7c3aed">'+(vS||0)+'</b>':money(p.stock_janzour)}</td>`,
       total:`<td>${isComp?('<b style="color:#7c3aed;background:#ede9fe;border-radius:6px;padding:2px 8px">'+(vS!==null&&vS!==undefined?vS:0)+'</b>'):('<b>'+money(p.total_stock)+'</b>')}</td>`
     };
     return PRODUCT_COLS.filter(c=>vis(c.id)).map(c=>all[c.id]||'').join('');
