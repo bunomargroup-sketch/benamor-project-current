@@ -178,7 +178,7 @@
           <div class="tools">
             <h2>قاعدة المنتجات</h2>
             <div class="row">
-              <input id="productSearch" placeholder="بحث بالكود، الاسم، الماركة، اللون، المورد..." oninput="debounceRenderProducts()" style="max-width:360px">
+              <input id="productSearch" placeholder="بحث..." oninput="debounceRenderProducts()" style="max-width:220px">
               <select id="productCategoryFilter" onchange="renderProducts()" style="min-width:170px"></select>
               <select id="productBrandFilter" onchange="renderProducts()" style="min-width:150px"></select>
               <select id="productColorFilter" onchange="renderProducts()" style="min-width:140px"></select>
@@ -200,10 +200,10 @@
               <div class="category-node active" onclick="selectProductCategory('')"><span>كل الأصناف</span><span class="count" id="allProductsCountSide">0</span></div>
               <div id="productCategoryTree"></div>
             </aside>
-            <div class="product-table-wrap">
+            <div class="product-table-wrap" oncontextmenu="if(event.target.closest('thead')){event.preventDefault();showProductColMenu(event)}">
               <div class="table-scroll">
                 <table>
-                  <thead><tr><th>رقم</th><th>الكود</th><th>الصنف</th><th>الماركة / الموديل</th><th>اللون</th><th>الباركود</th><th>المورد</th><th>التصنيف</th><th>شراء</th><th>بيع</th><th>الهامش</th><th>نسبة الهامش</th><th>حد الطلب</th><th>11 يونيو</th><th>السراج</th><th>جنزور</th><th>الإجمالي</th></tr></thead>
+                  
                   <tbody id="productsBody"></tbody>
                 </table>
               </div>
