@@ -669,9 +669,9 @@ function applyProductColVisibility(shown){
       retail:`<td>${money(p.retail_price)}</td>`,
       margin:`<td>${money(p._mv)}</td>`,
       margin_pct:`<td>${money(p._mp)}%</td>`,
-      s11:`<td>${isComp?'<b style="color:#7c3aed">'+(vS||0)+'</b>':money(p.stock_11_june)}</td>`,
-      ssr:`<td>${isComp?'<b style="color:#7c3aed">'+(vS||0)+'</b>':money(p.stock_sarraj)}</td>`,
-      sjz:`<td>${isComp?'<b style="color:#7c3aed">'+(vS||0)+'</b>':money(p.stock_janzour)}</td>`,
+      s11:`<td>${isComp?'<b style="color:#7c3aed">'+(getCompositeVStockByBranch(p.code,'stock_11_june')||0)+'</b>':money(p.stock_11_june)}</td>`,
+      ssr:`<td>${isComp?'<b style="color:#7c3aed">'+(getCompositeVStockByBranch(p.code,'stock_sarraj')||0)+'</b>':money(p.stock_sarraj)}</td>`,
+      sjz:`<td>${isComp?'<b style="color:#7c3aed">'+(getCompositeVStockByBranch(p.code,'stock_janzour')||0)+'</b>':money(p.stock_janzour)}</td>`,
       total:`<td>${isComp?('<b style="color:#7c3aed;background:#ede9fe;border-radius:6px;padding:2px 8px">'+(vS!==null&&vS!==undefined?vS:0)+'</b>'):('<b>'+money(p.total_stock)+'</b>')}</td>`
     };
     return PRODUCT_COLS.filter(c=>vis(c.id)).map(c=>all[c.id]||'').join('');
@@ -3717,6 +3717,19 @@ async function saveProductComponents(productCode){
       await api('pos_composite_items',{method:'POST',body:editingProductComponents.map(c=>({composite_code:productCode,component_code:c.code,component_name:c.name,qty:c.qty}))});
     }
   }catch(e){console.warn('composite save failed',e);}
+}
+function getCompositeVStockByBranch(compositeCode, branchField){
+  const comps=compositeItems.filter(ci=>ci.composite_code===compositeCode);
+  if(!comps.length) return null;
+  let min=Infinity;
+  for(const ci of comps){
+    const cp=products.find(p=>p.code===ci.component_code);
+    if(!cp) continue;
+    const bs=Number(cp[branchField]||0);
+    const possible=Math.floor(bs/Number(ci.qty||1));
+    if(possible<min)min=possible;
+  }
+  return min===Infinity?0:min;
 }
 function isCompositeProduct(code){return compositeItems.some(ci=>ci.composite_code===code);}
 function getCompositeVirtualStock(code){
