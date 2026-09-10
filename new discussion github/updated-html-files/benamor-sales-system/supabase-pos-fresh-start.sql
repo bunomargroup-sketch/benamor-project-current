@@ -72,7 +72,7 @@ delete from public.pos_products;
 -- ============================================================
 
 update public.pos_finance_accounts 
-set balance = 0, opening_balance = 0;
+set opening_balance = 0;
 
 -- ============================================================
 -- ما يبقى كما هو (لا يُمسح):
