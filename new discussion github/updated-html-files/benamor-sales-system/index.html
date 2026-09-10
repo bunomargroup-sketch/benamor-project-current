@@ -177,7 +177,8 @@
         <div class="panel">
           <div class="tools">
             <h2>قاعدة المنتجات</h2>
-            <input id="productSearch" placeholder="🔍 ابحث بالكود أو الاسم أو الماركة..." oninput="debounceRenderProducts()" style="width:100%;max-width:500px;font-size:17px;font-weight:700;padding:13px 18px;border:2.5px solid var(--blue);border-radius:14px;background:var(--accent-soft);margin-bottom:10px">
+            <input id="productSearch" placeholder="🔍 ابحث... مثال: خلاط كروم أقل من 200" oninput="debounceRenderProducts()" style="width:100%;max-width:500px;font-size:17px;font-weight:700;padding:13px 18px;border:2.5px solid var(--blue);border-radius:14px;background:var(--accent-soft);margin-bottom:10px">
+            <div id="smartFilterInfo" style="display:none;margin:4px 0 8px 0"></div>
             <div class="row">
               
               <select id="productCategoryFilter" onchange="renderProducts()" style="min-width:170px"></select>

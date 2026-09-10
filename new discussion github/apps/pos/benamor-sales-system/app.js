@@ -686,7 +686,17 @@ function applyProductColVisibility(shown){
   html+='</tbody>';
   const table=document.querySelector('#products .product-table-wrap table');
   if(table) table.innerHTML=html;
-  q('productsInfo').textContent=`عرض ${shown.length} من ${shown.length>=100?'100+':shown.length} منتج`;
+  q('productsInfo').textContent=`عرض ${shown.length} من ${rows.length} منتج`;
+  // عرض الفلاتر الذكية المفهومة
+  const smartInfo=q('smartFilterInfo');
+  if(smartInfo){
+    if(smartParsed&&smartParsed.display&&smartParsed.display.length){
+      smartInfo.innerHTML=smartParsed.display.map(d=>`<span style="background:#e0e7ff;color:#3730a3;border-radius:8px;padding:3px 10px;font-size:12px;font-weight:700;margin:2px;display:inline-block">${esc(d.label)}</span>`).join(' ')+` <button type="button" onclick="q('productSearch').value='';debounceRenderProducts()" style="background:none;border:1px solid #c7d2fe;color:#4f46e5;border-radius:8px;padding:3px 10px;font-size:12px;cursor:pointer;margin:2px">مسح الفلاتر ✕</button>`;
+      smartInfo.style.display='';
+    }else{
+      smartInfo.style.display='none';
+    }
+  }
 }
 
 function showProductColMenu(ev){
@@ -705,6 +715,247 @@ function showProductColMenu(ev){
   }))]);
 }
 
+// ===== البحث الذكي باللغة العربية — يعمل محلياً بدون API =====
+// يفهم: "خلاط كروم أقل من 200"، "مرايا بإضاءة"، "أرخص دولاب 80"
+
+// --- قاموس مرادفات قابل للتعديل ---
+const SMART_SYNONYMS={
+  'مرايا بإضاءة':['مرايا حمام مع إضاءة لد','مرايا مع إضاءة'],
+  'مرايا led':['مرايا حمام مع إضاءة لد','مرايا مع إضاءة'],
+  'خلاط دوش':['خلاط دوش'],
+  'خلاط مغسلة':['خلاط حوض وجه'],
+  'دولاب':['دولاب حمام','خزانة حمام'],
+  'حوض قدم':['حوض قدم'],
+  'سيفون':['سيفون','سيفوني'],
+  'شطاف':['شطاف'],
+  'علاقة':['علاقة','علاقت'],
+  'حاملة':['حاملة'],
+  'مسكر':['مسكر'],
+  'مخفض':['مخفض'],
+  'كوربة':['كوربة'],
+  'وصلة':['وصلة'],
+  'كوع':['كوع'],
+  'طوبة':['طابة','طوبه'],
+};
+
+// --- ألوان وتشطيبات معروفة في البضاعة ---
+const SMART_COLORS=['كروم','ذهبي','أسود','ابيض','أبيض','بيج','رصاصي','مطفي','لامع','كروم مطفي','ذهبي مطفي','أسود مطفي'];
+
+// --- أنواع منتجات معروفة (من الفئات والأسماء) ---
+const SMART_TYPES=['خلاط','مراية','مرايا','دولاب','خزانة','حوض','مقعد','سيفون','سماعة','دوش','شطاف','علاقة','حاملة','مسكر','سرفنتينة','كوربة','مخفض','وصلة','كوع','طوبة','سخانة','مضخة','مجفف','رف','بوكس','حاجز','طلاء','اسمنت','جبس','زمالطو','استوك','سلكون','لصقة','ورق سنفرة','فيتي','برشام','سرفنتينة','نبلس','بونتة','موس','فرشة','كيس','علبة','لامبة'];
+
+// --- ترتيب معروف ---
+const SMART_SORTS={'ارخص':['price','asc'],'اغلي':['price','desc'],'اغلى':['price','desc'],'اكبر':['size','desc'],'اصغر':['size','asc']};
+
+// --- أدوات ---
+function smartArabicToEnDigits(s){return String(s||'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d));}
+function smartNormAr(s){
+  return String(s||'').toLowerCase()
+    .replace(/[\u064B-\u065F\u0670\u0640]/g,'')
+    .replace(/[إأآا]/g,'ا').replace(/ى/g,'ي').replace(/ؤ/g,'و').replace(/ئ/g,'ي').replace(/ة/g,'ه')
+    .replace(/[ـ\-_/\\.,;:|()[\]{}+*؟?،«»"']/g,' ')
+    .replace(/\s+/g,' ').trim();
+}
+
+// --- الدالة الرئيسية: تحليل الاستعلام ---
+function smartParseQuery(rawQuery){
+  const raw=String(rawQuery||'').trim();
+  if(!raw) return {filters:{},sort:null,rawTokens:[],display:[]};
+
+  const q=smartNormAr(smartArabicToEnDigits(raw));
+  const tokens=q.split(' ').filter(Boolean);
+  const filters={type:null,colors:[],maxPrice:null,minPrice:null,sizes:[],sort:null,textTokens:[]};
+  const display=[];
+  let remaining=tokens.slice();
+
+  // 1. الباركود أو الكود الكامل (أولوية قصوى)
+  const rawClean=raw.trim();
+  const exactCode=products.find(p=>String(p.code||'').toLowerCase()===rawClean.toLowerCase());
+  if(exactCode){
+    return {filters:{exactCode:exactCode.code},sort:null,rawTokens:[],display:[{label:'الكود: '+exactCode.code,remove:false}],isExactCode:true};
+  }
+  const exactBarcode=products.find(p=>String(p.barcode||'')===rawClean);
+  if(exactBarcode){
+    return {filters:{exactCode:exactBarcode.code},sort:null,rawTokens:[],display:[{label:'الباركود: '+rawClean,remove:false}],isExactCode:true};
+  }
+
+  // 2. السعر: "أقل من X" أو "أرخص X" أو "أكثر من X"
+  for(let i=0;i<remaining.length;i++){
+    const t=remaining[i];
+    const num1=parseFloat(remaining[i+1]);
+    const num2=parseFloat(remaining[i+2]);
+    if(['اقل','ارخص','تحت','تقل'].includes(t)){
+      if(!isNaN(num1)&&num1>0){filters.maxPrice=num1;display.push({label:'السعر: ≤ '+num1,field:'maxPrice'});remaining.splice(i,2);i-=1;}
+      else if(!isNaN(num2)&&num2>0&&remaining[i+1]==='من'){filters.maxPrice=num2;display.push({label:'السعر: ≤ '+num2,field:'maxPrice'});remaining.splice(i,3);i-=1;}
+    }
+    else if(['اكثر','اغلي','اغلى','فوق','بعد'].includes(t)){
+      if(!isNaN(num1)&&num1>0){filters.minPrice=num1;display.push({label:'السعر: ≥ '+num1,field:'minPrice'});remaining.splice(i,2);i-=1;}
+      else if(!isNaN(num2)&&num2>0&&remaining[i+1]==='من'){filters.minPrice=num2;display.push({label:'السعر: ≥ '+num2,field:'minPrice'});remaining.splice(i,3);i-=1;}
+    }
+    // "أرخص" أو "أغلى" متبوعة برقم = فلتر سعر وليس ترتيب
+    else if(t==='ارخص'&&(!isNaN(num1)&&num1>0)){filters.maxPrice=num1;display.push({label:'السعر: ≤ '+num1,field:'maxPrice'});remaining.splice(i,2);i-=1;}
+    else if(t==='ارخص'&&(!isNaN(num2)&&num2>0&&remaining[i+1]==='من')){filters.maxPrice=num2;display.push({label:'السعر: ≤ '+num2,field:'maxPrice'});remaining.splice(i,3);i-=1;}
+    else if(t==='اغلى'&&(!isNaN(num1)&&num1>0)){filters.minPrice=num1;display.push({label:'السعر: ≥ '+num1,field:'minPrice'});remaining.splice(i,2);i-=1;}
+    else if(t==='اغلى'&&(!isNaN(num2)&&num2>0&&remaining[i+1]==='من')){filters.minPrice=num2;display.push({label:'السعر: ≥ '+num2,field:'minPrice'});remaining.splice(i,3);i-=1;}
+  }
+  remaining=remaining.filter(t=>!['من','دينار','دل','درهم','د.ل','lyd'].includes(t));
+
+  // 3. الترتيب: "أرخص" أو "أغلى" (فقط إذا لم يُستخدمان كفلتر سعر)
+  for(const [word,[field,dir]] of Object.entries(SMART_SORTS)){
+    const idx=remaining.indexOf(smartNormAr(word));
+    if(idx>=0&&(field!=='price'||(filters.maxPrice==null&&filters.minPrice==null))){
+      filters.sort={field,dir}; display.push({label:'ترتيب: '+word,field:'sort'});
+      remaining.splice(idx,1); break;
+    }
+  }
+
+  // 4. الألوان والتشطيبات
+  for(const color of SMART_COLORS){
+    const cn=smartNormAr(color);
+    const idx=remaining.findIndex(t=>t===cn||t.startsWith(cn));
+    if(idx>=0){
+      filters.colors.push(color); display.push({label:'التشطيب: '+color,field:'color'});
+      remaining.splice(idx,1);
+    }
+  }
+
+  // 5. نوع المنتج (مستخرج قبل المقاس)
+  for(const type of SMART_TYPES){
+    const tn=smartNormAr(type);
+    const idx=remaining.findIndex(t=>t===tn||t.startsWith(tn)||tn.startsWith(t)&&t.length>=3);
+    if(idx>=0){
+      filters.type=type; display.push({label:'النوع: '+type,field:'type'});
+      remaining.splice(idx,1); break;
+    }
+  }
+
+  // 6. المقاسات: أرقام مع وحدات (سم، مم، بوصة، لتر،...) أو نمط "80*50"
+  const sizeUnits=['سم','مم','بوصه','بوصة','انش','لتر','كغ','غرام','غرامات','متر','م','م2','قدم'];
+  for(let i=0;i<remaining.length;i++){
+    const t=remaining[i];
+    const num=parseFloat(t);
+    if(!isNaN(num)&&num>0){
+      const next=remaining[i+1]||'';
+      const prev=remaining[i-1]||'';
+      // إذا كان الرقم متبوعاً بوحدة مقاس
+      if(sizeUnits.some(u=>next===smartNormAr(u)||next.startsWith(smartNormAr(u)))){
+        filters.sizes.push({value:num,unit:next});
+        display.push({label:'المقاس: '+num+' '+next,field:'size'});
+        remaining.splice(i,2); i-=1; continue;
+      }
+      // إذا كان الرقم مسبوقاً بكلمة نوع منتج (مثل "دولاب 80")
+      if(filters.type&&SMART_TYPES.includes(filters.type)){
+        // قد يكون مقاساً — لكن فقط إذا ليس جزءاً من كود
+        if(!String(raw).includes(String(num))||!/^[a-zA-Z]{2,}\d+/.test(rawClean)){
+          if(num>=20&&num<=300){ // نطاق مقاسات معقول
+            filters.sizes.push({value:num,unit:'سم'});
+            display.push({label:'المقاس: '+num+' سم',field:'size'});
+            remaining.splice(i,1); i-=1; continue;
+          }
+        }
+      }
+    }
+    // نمط "80*50" أو "80*50*14"
+    const dimMatch=t.match(/^(\d+)[x×*](\d+)/);
+    if(dimMatch){
+      filters.sizes.push({value:parseFloat(dimMatch[1]),unit:'سم'});
+      display.push({label:'المقاس: '+t,field:'size'});
+      remaining.splice(i,1); i-=1; continue;
+    }
+  }
+
+
+
+  // 7. المرادفات (خلاط مغسلة = خلاط حوض وجه)
+  for(const [synonym,expansions] of Object.entries(SMART_SYNONYMS)){
+    const sn=smartNormAr(synonym);
+    if(q.includes(sn)&&!SMART_TYPES.some(t=>smartNormAr(t)===sn)){
+      const synWords=sn.split(' ');
+      remaining=remaining.filter(t=>!synWords.some(sw=>t.includes(sw)||sw.includes(t)));
+      // أضف كلمات التوسيع كبحث نصي إضافي
+      const expWords=expansions.map(e=>smartNormAr(e)).join(' ').split(' ').filter(w=>w.length>=2&&w!=='ال');
+      remaining.push(...expWords.filter(w=>!remaining.includes(w)));
+      display.push({label:'مرادف: '+synonym+' ← '+expansions[0],field:'synonym'});
+      break;
+    }
+  }
+
+  // 8. الكلمات المتبقية = نص حر للبحث
+  filters.textTokens=remaining.filter(t=>t.length>=2);
+
+  return {filters,sort:filters.sort,rawTokens:remaining,display};
+}
+
+// --- تطبيق الفلاتر على المنتجات ---
+function smartFilterProducts(parsed){
+  const {filters}=parsed;
+  let rows=products.slice();
+
+  // كود/باركود محدد
+  if(filters.exactCode){
+    return products.filter(p=>p.code===filters.exactCode);
+  }
+
+  // النوع
+  if(filters.type){
+    const tn=smartNormAr(filters.type);
+    rows=rows.filter(p=>{
+      const name=smartNormAr(p.name||'');
+      const cat=smartNormAr(p.category||'');
+      return name.includes(tn)||cat.includes(tn);
+    });
+  }
+
+  // اللون/التشطيب
+  if(filters.colors&&filters.colors.length){
+    rows=rows.filter(p=>{
+      const color=smartNormAr(p.color||'');
+      const name=smartNormAr(p.name||'');
+      return filters.colors.some(c=>{
+        const cn=smartNormAr(c);
+        return color.includes(cn)||name.includes(cn);
+      });
+    });
+  }
+
+  // السعر
+  if(filters.maxPrice!=null){
+    rows=rows.filter(p=>Number(p.retail_price||0)<=filters.maxPrice&&Number(p.retail_price||0)>0);
+  }
+  if(filters.minPrice!=null){
+    rows=rows.filter(p=>Number(p.retail_price||0)>=filters.minPrice);
+  }
+
+  // المقاس (بحث في الاسم فقط — ليس في الكود)
+  if(filters.sizes&&filters.sizes.length){
+    rows=rows.filter(p=>{
+      const name=smartNormAr(p.name||'');
+      return filters.sizes.every(s=>{
+        const sv=String(s.value);
+        return name.includes(sv)||name.includes(s.value+' '+s.unit)||name.includes(s.value+s.unit);
+      });
+    });
+  }
+
+  // نص حر (كلمات متبقية)
+  if(filters.textTokens&&filters.textTokens.length){
+    rows=rows.filter(p=>{
+      const hay=p._hay||smartNormAr(productSearchFields(p).join(' '));
+      return filters.textTokens.every(tok=>hay.includes(tok));
+    });
+  }
+
+  // الترتيب
+  if(filters.sort){
+    if(filters.sort.field==='price'){
+      rows.sort((a,b)=>filters.sort.dir==='asc'?Number(a.retail_price||0)-Number(b.retail_price||0):Number(b.retail_price||0)-Number(a.retail_price||0));
+    }
+  }
+
+  return rows;
+}
+
+
 function buildProductSearchIndex(){ for(const p of products){ if(!p) continue; if(p._hay===undefined) p._hay=normText(productSearchFields(p).join(' ')); if(p._cost===undefined){ const c=productCost(p.code); p._cost=c; p._mv=Number(p.retail_price||0)-c; p._mp=(c>0)?(p._mv/c*100):0; } } }
 let _renderProductsTimer=null;
 function debounceRenderProducts(){ clearTimeout(_renderProductsTimer); _renderProductsTimer=setTimeout(renderProducts,180); }
@@ -716,10 +967,25 @@ function renderProducts(){
   const cat=q('productCategoryFilter')?.value||'', brand=q('productBrandFilter')?.value||'', color=q('productColorFilter')?.value||'', supplier=q('productSupplierFilter')?.value||'';
   renderProductCategoryTree(cat);
   if(products.length && products[0]._hay===undefined) buildProductSearchIndex();
-  const normTerm=normText(term);
-  const rows=products.filter(p=>{
-    return (!cat || p.category===cat) && (!brand || p.brand===brand) && (!color || p.color===color) && (!supplier || p.supplier_name===supplier) && (!normTerm || (p._hay||'').includes(normTerm));
-  });
+  let rows;
+  let smartParsed=null;
+  if(term){
+    smartParsed=smartParseQuery(term);
+    if(smartParsed&&!smartParsed.isExactCode){
+      rows=smartFilterProducts(smartParsed);
+    }else if(smartParsed&&smartParsed.isExactCode){
+      rows=smartFilterProducts(smartParsed);
+    }else{
+      rows=products.filter(p=>(!cat||p.category===cat)&&(!brand||p.brand===brand)&&(!color||p.color===color)&&(!supplier||p.supplier_name===supplier));
+    }
+    // Apply dropdown filters on top
+    if(cat)rows=rows.filter(p=>p.category===cat);
+    if(brand)rows=rows.filter(p=>p.brand===brand);
+    if(color)rows=rows.filter(p=>p.color===color);
+    if(supplier)rows=rows.filter(p=>p.supplier_name===supplier);
+  }else{
+    rows=products.filter(p=>(!cat||p.category===cat)&&(!brand||p.brand===brand)&&(!color||p.color===color)&&(!supplier||p.supplier_name===supplier));
+  }
   const productCols=['code','name','brand','color','barcode','supplier_name','category','purchase_price','retail_price','margin_value','margin_pct','stock_11_june','stock_sarraj','stock_janzour','total_stock'];
   const key=productCols[productSortIndex]||'total_stock';
   rows.sort((a,b)=>{const va=key==='margin_value'?a._mv:(key==='margin_pct'?a._mp:(a[key]??'')), vb=key==='margin_value'?b._mv:(key==='margin_pct'?b._mp:(b[key]??'')); const na=parseFloat(va), nb=parseFloat(vb); const c=(!isNaN(na)&&!isNaN(nb))?na-nb:String(va).localeCompare(String(vb),'ar'); return productSortDir==='asc'?c:-c;});
