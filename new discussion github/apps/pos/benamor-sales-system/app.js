@@ -1036,7 +1036,7 @@ function renderCustomers(){
     const actions=[`<button class="btn secondary" onclick="openCustomerLedger('${c.id}')">كشف الحساب</button>`,`<button class="btn secondary" onclick="editCustomer('${c.id}')">تعديل</button>`];
     if(inactive) actions.push(`<button class="btn" onclick="toggleCustomerActive('${c.id}',true)">تفعيل</button>`);
     else if(isAdmin) actions.push(`<button class="btn danger" onclick="deleteCustomer('${c.id}')">حذف</button>`);
-    return `<tr${inactive?' style="opacity:.55"':''}><td class="ltr"><b>${esc(c.customer_no)}</b></td><td><b>${c.name}</b>${inactive?' <span class="badge gray">معطّل</span>':''}<div class="muted">${c.notes||''}</div></td><td class="ltr">${c.phone||''}</td><td>${c.address||''}</td><td><b>${money(c.balance)}</b></td><td>${badgeCustomer(c.balance)}</td><td><div class="row">${actions.join('')}</div></td></tr>`;
+    return `<tr${inactive?' style="opacity:.55"':''}><td class="ltr"><b>${esc(c.customer_no)}</b></td><td><b>${c.name}</b>${inactive?' <span class="badge gray">معطّل</span>':''}<div class="muted">${c.notes||''}</div></td><td class="ltr">${c.phone||''}${c.phone2?'<div class="mini ltr">'+c.phone2+'</div>':''}</td><td>${c.address||''}</td><td><b>${money(c.balance)}</b></td><td>${badgeCustomer(c.balance)}</td><td><div class="row">${actions.join('')}</div></td></tr>`;
   }).join('') || '<tr><td colspan="7">لا يوجد زبائن بعد.</td></tr>';
 }
 function openCustomerLedger(id){document.querySelector('[data-tab="customers"]').click(); q('customerLedgerCustomer').value=id; renderCustomerLedger()}
@@ -1543,7 +1543,7 @@ function normalizePhoneLY(p){
 function matchExistingCustomerByPhone(phone){
   const norm=normalizePhoneLY(phone);
   if(!norm) return null;
-  return customers.find(c=>normalizePhoneLY(c.phone)===norm && norm) || null;
+  return customers.find(c=>normalizePhoneLY(c.phone)===norm && norm) || customers.find(c=>normalizePhoneLY(c.phone2)===norm && norm) || null;
 }
 async function ensureSaleCustomer(balanceDue){
   let customer_id=q('saleCustomer').value||null;
@@ -2289,7 +2289,7 @@ q('roleForm').addEventListener('submit', async e=>{
 let editingCustomerId=null;
 function resetCustomerForm(){
   editingCustomerId=null;
-  const f=q('customerForm'); if(f) f.reset();
+  const f=q('customerForm'); if(f) f.reset(); if(q('customerPhone2')) q('customerPhone2').value='';
   if(q('customerOpening')) q('customerOpening').value=0;
   const btn=q('customerSubmitBtn'); if(btn) btn.textContent='حفظ الزبون';
   q('customerCancelEditBtn')?.classList.add('hidden');
@@ -2300,6 +2300,7 @@ function editCustomer(id){
   openTab('customers');
   if(q('customerName')) q('customerName').value=c.name||'';
   if(q('customerPhone')) q('customerPhone').value=c.phone||'';
+  if(q('customerPhone2')) q('customerPhone2').value=c.phone2||'';
   if(q('customerAddress')) q('customerAddress').value=c.address||'';
   if(q('customerNotes')) q('customerNotes').value=c.notes||'';
   if(q('customerOpening')) q('customerOpening').value=0;
@@ -2348,7 +2349,7 @@ q('customerForm').addEventListener('submit', async e=>{
   if(window.__busy) return; window.__busy=true;
   try{
     showLoading(true);
-    const body={name:q('customerName').value.trim(),phone:q('customerPhone').value.trim()||null,address:q('customerAddress').value.trim()||null,notes:q('customerNotes').value.trim()||null};
+    const body={name:q('customerName').value.trim(),phone:q('customerPhone').value.trim()||null,phone2:q('customerPhone2')?.value.trim()||null,address:q('customerAddress').value.trim()||null,notes:q('customerNotes').value.trim()||null};
     if(!body.name){toast('اكتب اسم الزبون','warn');return;}
     if(body.phone){
       const norm=normalizePhoneLY;
