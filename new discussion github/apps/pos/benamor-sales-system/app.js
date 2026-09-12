@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260912-2';
+const APP_BUILD='b20260912-3';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -291,15 +291,28 @@ async function gDriveSave(){
   try{
     const token=await gDriveEnsureToken(); showLoading(true);
     const content=JSON.stringify(gatherBackupData());
+    let saved=false;
     const existing=gDrive.fileId?{id:gDrive.fileId}:await gDriveFindFile(token).catch(()=>null);
     if(existing&&existing.id){
       const r=await fetch(`https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=media&fields=id,modifiedTime`,{method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:content});
-      if(!r.ok) throw new Error('تعذّر تحديث الملف في Drive'); const j=await r.json(); gDrive.fileId=existing.id; gDrive.lastSync=(j.modifiedTime||'').replace('T',' ').slice(0,19);
-    }else{
+      if(r.ok){ const j=await r.json(); gDrive.fileId=existing.id; gDrive.lastSync=(j.modifiedTime||'').replace('T',' ').slice(0,19); saved=true; }
+      else{
+        const errText=await r.text().catch(()=> ''); console.error('Drive: فشل تحديث ملف النسخة', r.status, errText);
+        // الملف القديم لم يعد متاحاً (حُذف من Drive أو تغيّر الحساب) — نمسح المعرّف القديم وننشئ ملفاً جديداً
+        if(gDrive.fileId===existing.id){ gDrive.fileId=''; localStorage.removeItem('posGDriveFileID'); }
+      }
+    }
+    if(!saved){
       const meta={name:GDRIVE_FILE,parents:['appDataFolder']}; const boundary='pos_'+Date.now();
       const body=`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${boundary}--`;
       const r=await fetch(`https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime`,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'multipart/related; boundary='+boundary},body});
-      if(!r.ok) throw new Error('تعذّر رفع الملف إلى Drive'); const j=await r.json(); gDrive.fileId=j.id; gDrive.lastSync=(j.modifiedTime||'').replace('T',' ').slice(0,19);
+      if(!r.ok){
+        const errBody=await r.json().catch(()=> ({}));
+        const reason=String(errBody?.error?.errors?.[0]?.reason||errBody?.error?.message||('HTTP '+r.status));
+        const friendly=/quota|storage/i.test(reason)?'مساحة Google Drive ممتلئة — احذف ملفات من حسابك أو وسّع المساحة':(/insufficientPermissions|forbidden|401|403/i.test(reason)?'صلاحيات Drive غير كافية — اضغط «ربط Google Drive» مرة أخرى':reason);
+        throw new Error('تعذّر الرفع إلى Drive — '+friendly);
+      }
+      const j=await r.json(); gDrive.fileId=j.id; gDrive.lastSync=(j.modifiedTime||'').replace('T',' ').slice(0,19);
     }
     localStorage.setItem('posGDriveFileID',gDrive.fileId); localStorage.setItem('posGDriveLastSync',gDrive.lastSync);
     renderGDriveStatus(); toast('تم حفظ النسخة الاحتياطية على Google Drive','success');
