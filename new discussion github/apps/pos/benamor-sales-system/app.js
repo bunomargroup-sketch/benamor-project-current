@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260912-7';
+const APP_BUILD='b20260912-8';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -262,7 +262,8 @@ function restoreBackup(input){
   reader.readAsText(file);
 }
 /* ===== النسخ الاحتياطي على Google Drive (مجلد مخفي appDataFolder) ===== */
-let gDrive={token:null,expires:0,email:'',clientId:localStorage.getItem('posGDriveClientID')||'',fileId:localStorage.getItem('posGDriveFileID')||'',lastSync:localStorage.getItem('posGDriveLastSync')||'',auto:localStorage.getItem('posGDriveAuto')==='1'};
+let gDrive={token:localStorage.getItem('posGDriveToken')||null,expires:Number(localStorage.getItem('posGDriveTokenExpiry'))||0,email:localStorage.getItem('posGDriveEmail')||'',clientId:localStorage.getItem('posGDriveClientID')||'',fileId:localStorage.getItem('posGDriveFileID')||'',lastSync:localStorage.getItem('posGDriveLastSync')||'',auto:localStorage.getItem('posGDriveAuto')==='1'};
+function gDriveDropToken(){gDrive.token=null;gDrive.expires=0; try{localStorage.removeItem('posGDriveToken');localStorage.removeItem('posGDriveTokenExpiry');}catch(e){}}
 const GDRIVE_SCOPE='https://www.googleapis.com/auth/drive.appdata openid email';
 const GDRIVE_FILE='pos-backup.json';
 function gatherBackupData(){return {_meta:{app:'benamor-pos',exported_at:new Date().toISOString(),branch:appUser?.branch_name||'',user:appUser?.identifier||''},locations,suppliers,supplier_ledger:ledger,supplier_payments:payments,stock,purchases,purchaseItems,products,transfers,sales,saleItems,salePayments,proformas,proformaItems,saleReturns,saleReturnItems,stockMovements,customers,customerLedger,userRoles,financeAccounts,financeMovements,dailyCashClosings,expenseCategories,expenses,employees,salaryPayments,settings:{businessName:APP_CONFIG.businessName,tagline:APP_CONFIG.tagline,currency:APP_CONFIG.currency,lowStockThreshold:APP_CONFIG.lowStockThreshold}};}
@@ -280,13 +281,14 @@ function gDriveEnsureToken(){return new Promise((resolve,reject)=>{
   if(!window.google?.accounts?.oauth2){reject(new Error('لم يُحمّل سكربت Google بعد — تأكد من الاتصال بالإنترنت'));return;}
   const client=window.google.accounts.oauth2.initTokenClient({client_id:gDrive.clientId,scope:GDRIVE_SCOPE,
     callback:resp=>{if(resp.error){reject(new Error(String(resp.error)));return;} gDrive.token=resp.access_token; gDrive.expires=Date.now()+(Number(resp.expires_in)||3600)*1000;
-      fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+resp.access_token}}).then(r=>r.json()).then(u=>{gDrive.email=u.email||'';renderGDriveStatus();}).catch(()=>{});
+      try{localStorage.setItem('posGDriveToken',gDrive.token); localStorage.setItem('posGDriveTokenExpiry',String(gDrive.expires));}catch(e){}
+      fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+resp.access_token}}).then(r=>r.json()).then(u=>{gDrive.email=u.email||''; try{localStorage.setItem('posGDriveEmail',gDrive.email);}catch(e){} renderGDriveStatus();}).catch(()=>{});
       resolve(resp.access_token);},
     error_callback:err=>reject(new Error((err&&(err.message||err.type))||'فشل تسجيل الدخول إلى Google'))});
   client.requestAccessToken({prompt:(gDrive.token?'':'consent')});
 });}
 function gDriveConnect(){gDriveEnsureToken().then(()=>toast('تم ربط Google Drive','success')).catch(e=>toast('تعذّر الربط: '+e.message,'error'));}
-async function gDriveFindFile(token){const r=await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent("name='"+GDRIVE_FILE+"'")}&spaces=appDataFolder&fields=files(id,name,modifiedTime,size)&orderBy=modifiedTime%20desc`,{headers:{Authorization:'Bearer '+token}}); if(!r.ok) throw new Error('تعذّر البحث في Drive'); const j=await r.json(); return (j.files&&j.files[0])||null;}
+async function gDriveFindFile(token){const r=await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent("name='"+GDRIVE_FILE+"'")}&spaces=appDataFolder&fields=files(id,name,modifiedTime,size)&orderBy=modifiedTime%20desc`,{headers:{Authorization:'Bearer '+token}}); if(!r.ok){ if(r.status===401) gDriveDropToken(); throw new Error('تعذّر البحث في Drive'); } const j=await r.json(); return (j.files&&j.files[0])||null;}
 async function gDriveSave(){
   try{
     const token=await gDriveEnsureToken(); showLoading(true);
@@ -298,6 +300,7 @@ async function gDriveSave(){
       if(r.ok){ const j=await r.json(); gDrive.fileId=existing.id; gDrive.lastSync=(j.modifiedTime||'').replace('T',' ').slice(0,19); saved=true; }
       else{
         const errText=await r.text().catch(()=> ''); console.error('Drive: فشل تحديث ملف النسخة', r.status, errText);
+        if(r.status===401) gDriveDropToken();
         // الملف القديم لم يعد متاحاً (حُذف من Drive أو تغيّر الحساب) — نمسح المعرّف القديم وننشئ ملفاً جديداً
         if(gDrive.fileId===existing.id){ gDrive.fileId=''; localStorage.removeItem('posGDriveFileID'); }
       }
@@ -307,6 +310,7 @@ async function gDriveSave(){
       const body=`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${boundary}--`;
       const r=await fetch(`https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime`,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'multipart/related; boundary='+boundary},body});
       if(!r.ok){
+        if(r.status===401) gDriveDropToken();
         const errBody=await r.json().catch(()=> ({}));
         const reason=String(errBody?.error?.errors?.[0]?.reason||errBody?.error?.message||('HTTP '+r.status));
         const friendly=/quota|storage/i.test(reason)?'مساحة Google Drive ممتلئة — احذف ملفات من حسابك أو وسّع المساحة':(/insufficientPermissions|forbidden|401|403/i.test(reason)?'صلاحيات Drive غير كافية — اضغط «ربط Google Drive» مرة أخرى':reason);
