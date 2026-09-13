@@ -1,21 +1,27 @@
 -- ===================================================================
--- Benamor POS — المنتجات المركّبة في فواتير البيع (سطر واحد + خصم المكوّنات)
+-- Benamor POS — المنتجات المركّبة + حفظ التكلفة وقت البيع (نسخة موحّدة)
 --
--- ماذا يتغير؟
---   • فاتورة البيع تحتفظ بسطر المنتج المركّب نفسه (وليس مكوّناته)
---   • خصم المخزون يتم من المكوّنات تلقائياً عند حفظ الفاتورة
---   • مرتجع الزبون يرجع الكميات إلى المكوّنات تلقائياً
---   • الفواتير القديمة (المحفوظة بمكوّناتها) تبقى تعمل كما هي
+-- هذا الملف يجمع معاً:
+--   1) حفظ تكلفة الصنف وقت البيع (unit_cost_at_sale) — من ملف التحصين
+--   2) خصم مخزون المكوّنات عند بيع منتج مركّب (سطر واحد في الفاتورة)
+--   3) إرجاع المخزون للمكوّنات عند مرتجع الزبون
 --
--- هذا الملف يعيد تعريف:
---   post_sale_transaction        (خصم مكوّنات المركّب)
---   post_sale_return_transaction (إرجاع مكوّنات المركّب)
---
--- ⚠️ شغّله في Supabase SQL Editor
--- ⚠️ شغّله بعد supabase-pos-allow-negative-stock.sql إن كنت تستعمله
+-- ✅ شغّل هذا الملف مكان/بعد أي ملف سابق لمعاملات البيع
+--    (يستبدل post_sale_transaction و post_sale_return_transaction
+--     بأحدث نسخة موحّدة — آمن لإعادة التشغيل)
 -- ===================================================================
 
 begin;
+
+-- عمود تكلفة وقت البيع (إن لم يكن موجوداً)
+alter table if exists public.pos_sale_items
+  add column if not exists unit_cost_at_sale numeric not null default 0;
+
+alter table if exists public.pos_sale_items
+  drop constraint if exists pos_sale_items_unit_cost_at_sale_check;
+
+alter table if exists public.pos_sale_items
+  add constraint pos_sale_items_unit_cost_at_sale_check check (unit_cost_at_sale >= 0);
 
 -- جدول المكوّنات (إن لم يكن موجوداً)
 create table if not exists public.pos_composite_items (
@@ -60,6 +66,7 @@ declare
   v_amount numeric;
   v_payment_method text;
   v_has_items boolean;
+  v_unit_cost numeric;
   v_comp record;
 begin
   if p_idempotency_key is not null and trim(p_idempotency_key) <> '' then
@@ -84,18 +91,21 @@ begin
 
   for v_item in select * from jsonb_array_elements(p_items) loop
     v_qty := coalesce(nullif(v_item->>'qty','')::numeric, 0);
-    if v_qty = 0 then raise exception 'ITEM_QTY_CANNOT_BE_ZERO'; end if;
+    -- Phase 1 hardening: normal checkout must not contain unlinked return lines.
+    -- All customer returns must go through post_sale_return_transaction with original sale item IDs.
+    if v_qty <= 0 then raise exception 'NEGATIVE_OR_ZERO_SALE_QTY_NOT_ALLOWED_USE_RETURN_WORKFLOW'; end if;
     if coalesce(nullif(v_item->>'unit_price','')::numeric, 0) < 0 then raise exception 'NEGATIVE_PRICE_NOT_ALLOWED'; end if;
     v_line_total := coalesce(nullif(v_item->>'line_total','')::numeric, 0);
+    if v_line_total < 0 then raise exception 'NEGATIVE_LINE_TOTAL_NOT_ALLOWED'; end if;
     v_subtotal := v_subtotal + v_line_total;
   end loop;
 
+  if v_discount > v_subtotal then raise exception 'DISCOUNT_EXCEEDS_SUBTOTAL'; end if;
   v_total := v_subtotal - v_discount;
   if v_total > 0 and v_customer is null and coalesce(nullif(p_sale->>'balance_due','')::numeric,0) > 0 then
     raise exception 'CUSTOMER_REQUIRED_FOR_CREDIT_SALE';
   end if;
 
-  -- Validate and total payments
   for v_payment in select * from jsonb_array_elements(coalesce(p_payments,'[]'::jsonb)) loop
     v_amount := coalesce(nullif(v_payment->>'amount','')::numeric, 0);
     v_payment_method := v_payment->>'payment_method';
@@ -107,15 +117,10 @@ begin
     v_paid_abs := v_paid_abs + v_amount;
   end loop;
 
-  if v_total < 0 and v_paid_abs <> abs(v_total) then
-    raise exception 'REFUND_AMOUNT_MUST_EQUAL_NEGATIVE_TOTAL: expected %, got %', abs(v_total), v_paid_abs;
-  end if;
-  if v_total >= 0 and v_paid_abs > v_total then
-    raise exception 'PAID_AMOUNT_EXCEEDS_TOTAL';
-  end if;
+  if v_paid_abs > v_total then raise exception 'PAID_AMOUNT_EXCEEDS_TOTAL'; end if;
 
-  v_paid_signed := case when v_total < 0 then -v_paid_abs else v_paid_abs end;
-  v_balance_due := case when v_total > 0 then greatest(0, v_total - v_paid_abs) else 0 end;
+  v_paid_signed := v_paid_abs;
+  v_balance_due := greatest(0, v_total - v_paid_abs);
   v_method := case
     when v_balance_due > 0 then 'credit'
     when jsonb_array_length(coalesce(p_payments,'[]'::jsonb)) > 1 then 'mixed'
@@ -133,7 +138,13 @@ begin
 
   for v_item in select * from jsonb_array_elements(p_items) loop
     v_qty := (v_item->>'qty')::numeric;
-    insert into public.pos_sale_items(sale_id, product_code, product_name, qty, unit_price, line_discount, discount_text, line_total)
+    select coalesce(p.purchase_price,0) into v_unit_cost
+    from public.pos_products p
+    where lower(p.code)=lower(v_item->>'product_code')
+    limit 1;
+    v_unit_cost := coalesce(v_unit_cost,0);
+
+    insert into public.pos_sale_items(sale_id, product_code, product_name, qty, unit_price, line_discount, discount_text, line_total, unit_cost_at_sale)
     values (
       v_sale.id,
       v_item->>'product_code',
@@ -142,7 +153,8 @@ begin
       coalesce(nullif(v_item->>'unit_price','')::numeric,0),
       coalesce(nullif(v_item->>'line_discount','')::numeric,0),
       nullif(v_item->>'discount_text',''),
-      coalesce(nullif(v_item->>'line_total','')::numeric,0)
+      coalesce(nullif(v_item->>'line_total','')::numeric,0),
+      v_unit_cost
     );
 
     -- منتج مركّب: يُخصم المخزون من مكوّناته (والفاتورة تحتفظ بسطر المركّب نفسه)
@@ -168,7 +180,7 @@ begin
         'sale',
         'pos_sales',
         v_sale.id,
-        case when v_qty < 0 then 'مرتجع داخل فاتورة بيع' else 'فاتورة بيع' end || coalesce(' | المستخدم: '||p_user_identifier,'')
+        'فاتورة بيع' || coalesce(' | المستخدم: '||p_user_identifier,'')
       );
     end if;
   end loop;
@@ -183,16 +195,8 @@ begin
 
     if v_account is not null then
       insert into public.pos_finance_movements(account_id, direction, movement_type, amount, movement_date, reference_table, reference_id, notes)
-      values (
-        v_account,
-        case when v_total < 0 then 'out' else 'in' end,
-        case when v_total < 0 then 'customer_refund' else 'sale_payment' end,
-        v_amount,
-        v_sale_date,
-        'pos_sales',
-        v_sale.id,
-        case when v_total < 0 then 'Customer Refund / استرداد للزبون' else 'تحصيل فاتورة بيع' end || ' - فاتورة ' || coalesce(v_sale.invoice_no,'') || coalesce(' - المستخدم: '||p_user_identifier,'')
-      );
+      values (v_account,'in','sale_payment',v_amount,v_sale_date,'pos_sales',v_sale.id,
+        'تحصيل فاتورة بيع - فاتورة ' || coalesce(v_sale.invoice_no,'') || coalesce(' - المستخدم: '||p_user_identifier,''));
     end if;
   end loop;
 
@@ -383,9 +387,7 @@ commit;
 
 -- ============================================================
 -- التحقق بعد التشغيل:
---   select proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace
---   where n.nspname='public' and proname in ('post_sale_transaction','post_sale_return_transaction');
---
--- اختبار فعلي: أضف منتجاً مركّباً لفاتورة (سيظهر كسطر واحد) → احفظ
--- → شاشة المخزون: كميات المكوّنات نقصت (وليس سطر المركّب)
+--   select column_name from information_schema.columns
+--   where table_name='pos_sale_items' and column_name='unit_cost_at_sale';
+--   → يجب أن يرجع صفاً واحداً
 -- ============================================================
