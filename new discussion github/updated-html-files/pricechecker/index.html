@@ -35,20 +35,25 @@ async function loadProductsFromDB(){
 } const SUPABASE_URL='https://kkqbkumobeimwuscxztu.supabase.co'; const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'; const $=id=>document.getElementById(id); const nf=new Intl.NumberFormat('ar-LY'), pf=new Intl.NumberFormat('en-US',{maximumFractionDigits:2});
 function load(k,d){try{return JSON.parse(localStorage.getItem('bo_'+k)||JSON.stringify(d))}catch(e){return d}} function save(k,v){localStorage.setItem('bo_'+k,JSON.stringify(v))} function price(n){return pf.format(Number(n||0))} function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))} function norm(s){return String(s||'').toLowerCase().replace(/[\u064B-\u065F\u0670]/g,'').replace(/[إأآا]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').trim()} function toast(m){$('toast').innerHTML='<div>'+esc(m)+'</div>';setTimeout(()=>$('toast').innerHTML='',1700)}
  let cMap=new Map(); function pbuy(p){return Number(cMap.get(String(p&&p.code||'').toUpperCase())||0)} loadProductsFromDB().then(()=>{loadPrivatePrices(); loadStockFromDB();}); async function loadPrivatePrices(){try{let all=[],from=0,batch=1000,path='product_'+('co'+'sts')+'?select=code,'+('co'+'st');while(true){const res=await fetch(SUPABASE_URL+'/rest/v1/'+path,{headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+((authSession&&authSession.access_token)||SUPABASE_KEY),Range:`${from}-${from+batch-1}`}}); if(!res.ok)throw new Error(await res.text()); const rows=await res.json(); all=all.concat(rows||[]); if(!rows||rows.length<batch)break; from+=batch;} cMap=new Map((all||[]).map(r=>[String(r.code||'').toUpperCase(),Number(r['co'+'st']||0)])); renderCart(); if(chosen)renderSelected(chosen);}catch(e){console.warn('private prices unavailable',e); cMap=new Map(); renderCart(); if(chosen)renderSelected(chosen);}}
-let stockMap=new Map(); function stockOf(code){const k=String(code||'').toUpperCase(); return stockMap.has(k)?Number(stockMap.get(k)||0):null}
-function stockBadge(code,big){const q=stockOf(code); if(q===null)return ''; const lbl=q>0?('متوفر: '+pf.format(q)):(q<0?('ناقص: '+pf.format(Math.abs(q))):'غير متوفر'); const c=q>0?'#22c55e':(q<0?'#f59e0b':'#ef4444'); return `<div style="direction:rtl;font-size:${big?'13px':'9px'};font-weight:800;color:${c};white-space:nowrap">${lbl}</div>`}
+let stockMap=new Map(), stockLocs=[];
+function stockOf(code){const o=stockMap.get(String(code||'').toUpperCase()); return o?Number(o.t||0):null}
+function stockByLoc(code){const o=stockMap.get(String(code||'').toUpperCase()); return (o&&o.locs)||null}
+function stockBadge(code,big){const q=stockOf(code); if(q===null)return ''; const lbl=q>0?('متوفر: '+pf.format(q)):(q<0?('ناقص: '+pf.format(Math.abs(q))):'غير متوفر'); const c=q>0?'#22c55e':(q<0?'#f59e0b':'#ef4444'); const o=stockByLoc(code); let parts=''; if(big&&o&&stockLocs.length){parts=stockLocs.filter(l=>o[l.id]!==undefined).map(l=>esc(l.name)+': '+pf.format(Number(o[l.id]||0))).join(' · ');} if(!big)return `<div style="direction:rtl;font-size:9px;font-weight:800;color:${c};white-space:nowrap">${lbl}</div>`; return `<div style="flex:1 1 130px;min-width:0;direction:rtl;text-align:right"><div style="font-size:13px;font-weight:800;color:${c}">${lbl}</div>${parts?`<div style="font-size:10px;font-weight:700;color:#94a3b8;line-height:1.7">${parts}</div>`:''}</div>`}
 async function loadStockFromDB(){
-  try{const cached=localStorage.getItem('pcStockCache'); if(cached){const o=JSON.parse(cached); stockMap=new Map(o.m||[]);}}catch(e){}
+  try{const cached=localStorage.getItem('pcStockCache2'); if(cached){const o=JSON.parse(cached); stockMap=new Map(o.m||[]); stockLocs=o.locs||[];}}catch(e){}
   try{
+    let locs=[];
+    try{const lr=await fetch(SUPABASE_URL+'/rest/v1/pos_locations?select=id,name,is_sales_location,location_type&order=name.asc',{headers:{apikey:SUPABASE_KEY}}); if(lr.ok){const rows=await lr.json(); locs=(rows||[]).filter(l=>l&&l.id&&l.name).map(l=>({id:String(l.id),name:String(l.name)}));}}catch(e){console.warn('locations load failed',e)}
     let all=[],from=0,batch=1000;
     while(true){
-      const res=await fetch(SUPABASE_URL+'/rest/v1/pos_stock?select=product_code,qty',{headers:{apikey:SUPABASE_KEY,Range:`${from}-${from+batch-1}`}});
+      const res=await fetch(SUPABASE_URL+'/rest/v1/pos_stock?select=product_code,location_id,qty',{headers:{apikey:SUPABASE_KEY,Range:`${from}-${from+batch-1}`}});
       if(!res.ok)throw new Error(await res.text());
       const rows=await res.json(); all=all.concat(rows||[]); if(!rows||rows.length<batch)break; from+=batch;
     }
-    const m=new Map(); (all||[]).forEach(r=>{const k=String(r.product_code||'').toUpperCase(); m.set(k,Number(m.get(k)||0)+Number(r.qty||0))});
-    stockMap=m;
-    try{localStorage.setItem('pcStockCache',JSON.stringify({saved_at:new Date().toISOString(),m:[...m.entries()]}))}catch(e){}
+    const m=new Map(); (all||[]).forEach(r=>{const k=String(r.product_code||'').toUpperCase(); const lid=String(r.location_id||''); const q=Number(r.qty||0); let o=m.get(k); if(!o){o={t:0,locs:{}}; m.set(k,o);} o.t+=q; if(lid)o.locs[lid]=Number(o.locs[lid]||0)+q;});
+    stockMap=m; stockLocs=locs;
+    try{localStorage.setItem('pcStockCache2',JSON.stringify({saved_at:new Date().toISOString(),locs:stockLocs,m:[...stockMap.entries()]}))}catch(e){}
+    try{localStorage.removeItem('pcStockCache')}catch(e){}
     doSearch(); if(chosen)renderSelected(chosen);
   }catch(e){console.warn('stock load failed',e)}
 }
