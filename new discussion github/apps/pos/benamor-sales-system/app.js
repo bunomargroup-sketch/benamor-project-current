@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260912-8';
+const APP_BUILD='b20260912-9';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -2086,6 +2086,32 @@ table.items{width:100%;border-collapse:collapse;margin:0 0 18px}
     showInAppPrint(html);
   }catch(err){console.error(err);toast('خطأ في طباعة الفاتورة: '+err.message)}
 }
+async function deleteSale(id){
+  if(currentRole?.role!=='admin'){toast('حذف الفواتير للمدير فقط','warn');return;}
+  const sl=sales.find(x=>x.id===id); if(!sl){toast('لم يتم العثور على الفاتورة','warn');return;}
+  const inv=sl.invoice_no||String(id).slice(0,8);
+  const cust=customers.find(x=>x.id===sl.customer_id);
+  if(!confirm(`حذف نهائي لفاتورة البيع رقم ${inv}؟\nالتاريخ: ${sl.sale_date} — الإجمالي: ${money(sl.total)} ${APP_CONFIG.currency} — الزبون: ${cust?.name||'زبون نقدي'}\nسيتم إرجاع المخزون وإلغاء كل آثارها المالية. لا يمكن التراجع.`))return;
+  const typed=prompt(`للتأكيد النهائي اكتب رقم الفاتورة كما هو:\n${inv}`,''); if(typed===null)return;
+  if(String(typed).trim()!==String(inv)){toast('رقم الفاتورة غير مطابق — لم يتم الحذف','warn');return;}
+  if(window.__busy)return; window.__busy=true;
+  try{
+    showLoading(true);
+    await rpc('admin_delete_sale',{p_sale_id:id});
+    await logAction('sale_delete','pos_sales',null,`حذف فاتورة ${inv} — ${money(sl.total)} ${APP_CONFIG.currency}`);
+    await loadAll();
+    toast('تم حذف الفاتورة وإرجاع المخزون','success');
+  }catch(e){
+    console.error(e);
+    const m=String(e&&e.message||'');
+    let t='تعذّر الحذف: '+friendlyError(e);
+    if(m.includes('SALE_HAS_RETURNS'))t='لا يمكن حذف الفاتورة: عليها مرتجعات مسجّلة — عالج المرتجعات أولاً';
+    if(m.includes('ONLY_ADMIN'))t='هذه العملية للمدير فقط';
+    if(m.includes('does not exist'))t+=' — شغّل ملف supabase-pos-admin-delete-sale.sql في Supabase أولاً';
+    toast(t,'error');
+  }
+  finally{showLoading(false);window.__busy=false;}
+}
 
 
 function addProformaRow(item={}){
@@ -3131,13 +3157,42 @@ function inDateRange(date, from, to){
 }
 let productCostCache=new Map();
 function buildProductCostIndex(){
+  // المتوسط المرجّح المتحرك: محاكاة زمنية لكل حركات الشراء والبيع
+  // الشراء يضيف الكمية بقيمته الفعلية — البيع يخصم بالمتوسط الجاري —
+  // المرتجعات تُرجع بالمتوسط الجاري. التكلفة الناتجة تعكس المخزون المتبقي فعلياً.
   productCostCache=new Map();
-  const acc=new Map();
-  for(const it of (purchaseItems||[])){ const q=Number(it.qty||0); if(q>0){ const k=String(it.product_code||'').trim().toLowerCase(); if(!k) continue; const o=acc.get(k); if(o){o.qty+=q; o.total+=Number(it.line_total||0);} else acc.set(k,{qty:q,total:Number(it.line_total||0)}); } }
-  for(const [k,o] of acc){ if(o.qty>0){ const avg=o.total/o.qty; if(avg>0) productCostCache.set(k,avg); } }
+  const st=new Map(); const events=[];
+  const purchaseDate=new Map((purchases||[]).map(p=>[p.id,String(p.purchase_date||p.created_at||'')]));
+  const saleDate=new Map((sales||[]).map(x=>[x.id,String(x.sale_date||x.created_at||'')]));
+  (purchaseItems||[]).forEach(it=>{
+    const q=Number(it.qty||0); if(!q)return;
+    events.push({t:purchaseDate.get(it.purchase_id)||'',k:q>0?'in':'out',code:String(it.product_code||'').trim().toLowerCase(),q:Math.abs(q),c:Number(it.line_total||0)/Math.abs(q)});
+  });
+  (saleItems||[]).forEach(it=>{
+    const q=Number(it.qty||0); if(!q)return;
+    const comps=(compositeItems||[]).filter(ci=>ci.composite_code===it.product_code);
+    const targets=comps.length?comps.map(ci=>({code:String(ci.component_code||'').trim().toLowerCase(),q:Math.abs(q)*Number(ci.qty||1)})):[{code:String(it.product_code||'').trim().toLowerCase(),q:Math.abs(q)}];
+    targets.forEach(tg=>events.push({t:saleDate.get(it.sale_id)||'',k:q>0?'out':'ret',code:tg.code,q:tg.q}));
+  });
+  events.sort((a,b)=> (a.t<b.t)?-1:((a.t>b.t)?1:0));
+  const S=k=>{let o=st.get(k); if(!o){o={q:0,v:0,avg:0}; st.set(k,o);} return o;};
+  events.forEach(e=>{
+    const o=S(e.code);
+    if(e.k==='in'){ o.q+=e.q; o.v+=e.q*(e.c||0); }
+    else{
+      const avg=o.q>0.0000001?o.v/o.q:(o.avg||0);
+      if(e.k==='out'){ o.v-=e.q*avg; o.q-=e.q; }
+      else { o.v+=e.q*avg; o.q+=e.q; }
+      if(avg>0)o.avg=avg;
+      if(Math.abs(o.q)<0.0000001){o.q=0;o.v=0;}
+    }
+  });
+  st.forEach((o,k)=>{ const cost=o.q>0.0000001?o.v/o.q:(o.avg||0); if(cost>0) productCostCache.set(k,cost); });
+  // احتياطي 1: متوسط التكلفة المسجلة وقت البيع (لأصناف بلا مشتريات)
   const hist=new Map();
-  for(const s of (saleItems||[])){ const c=Number(s.unit_cost_at_sale||0); if(c>0){ const k=String(s.product_code||'').trim().toLowerCase(); if(!k||productCostCache.has(k)) continue; const o=hist.get(k); if(o){o.sum+=c;o.n++;} else hist.set(k,{sum:c,n:1}); } }
-  for(const [k,o] of hist){ if(o.n>0) productCostCache.set(k,o.sum/o.n); }
+  for(const x of (saleItems||[])){ const c=Number(x.unit_cost_at_sale||0); if(c>0){ const k=String(x.product_code||'').trim().toLowerCase(); if(!k||productCostCache.has(k)) continue; const o=hist.get(k); if(o){o.sum+=c;o.n++;} else hist.set(k,{sum:c,n:1}); } }
+  for(const [k,o] of hist){ if(o.n>0 && !productCostCache.has(k)) productCostCache.set(k,o.sum/o.n); }
+  // احتياطي 2: سعر الشراء الثابت من بطاقة المنتج
   for(const p of products){ const k=String(p.code||'').trim().toLowerCase(); if(k && !productCostCache.has(k)){ const v=Number(p.purchase_price||p.cost||0); if(v>0) productCostCache.set(k,v); } }
 }
 function productCost(code){
@@ -3834,12 +3889,14 @@ const CTX_BUILDERS={
       {label:'سعر البيع: '+money(p?.retail_price||0)+' '+APP_CONFIG.currency,icon:'ti-tag',action:()=>showProductStockSummary(code,'all')}];
   },
   salesBody(tr){const id=ctxArg(tr,'selectSaleRow'); if(!id) return []; selectSaleRow(id);
-    return [{head:'فاتورة بيع'},
+    const items=[{head:'فاتورة بيع'},
       {label:'فتح / تعديل',icon:'ti-edit',action:()=>openSaleForEdit(id)},
       {label:'طباعة الفاتورة',icon:'ti-printer',action:()=>printSale(id)},
       {label:'مرتجع',icon:'ti-arrow-back-up',action:()=>openSaleReturn(id)},
       {sep:true},
       {label:'تحويل إلى مبدئية',icon:'ti-file-description',action:()=>convertSaleToProforma(id)}];
+    if(currentRole?.role==='admin') items.push({sep:true},{label:'حذف الفاتورة (مدير)',icon:'ti-trash',action:()=>deleteSale(id)});
+    return items;
   },
   suppliersBody(tr){const id=ctxArg(tr.querySelector('button[onclick^="openLedger"]'),'openLedger'); if(!id) return [];
     return [{head:'المورد'},
