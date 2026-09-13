@@ -11,6 +11,11 @@
 --   • ج3: اكتُشف أن REVOKE ALL ON TABLE لا يسحب منح الأعمدة
 --     (column-level grants) — فكان المسار «ب» في النسخة 3 سيترك
 --     المنتجات مقروءة رغم حذف سطرَيها. أُضيفت الكتلة 3ب لسحبها صراحةً.
+--   • ج4 (إصلاح التشغيل): استُبدل الجدول المؤقت _anon_read بقائمة
+--     VALUES داخل الكتلة 4 نفسها — بعض أوضاع SQL Editor تنفّذ الأسطر
+--     منفصلةً فيُسقط الجدول المؤقت (on commit drop) قبل استخدامه
+--     ويظهر خطأ relation "_anon_read" does not exist. النسخة الحالية
+--     محصّنة ضد ذلك وقابلة لإعادة التشغيل في أي وضع.
 --
 -- المشكلة الأصلية: supabase-pos-setup.sql (الأسطر 187–206) ينشئ سياسات
 --   `for all to anon using (true)` على كل جداول pos_ — إن شُغِّلت.
@@ -68,16 +73,7 @@ order by tablename, policyname;
 -- ═══════════════════════════════════════════════════════════════════
 
 begin;
-
--- العمود الثاني = الأعمدة المسموح بقراءتها. NULL تعني كل الأعمدة.
--- ⚠️ pos_products يجب أن تبقى بأعمدة محددة: منح الجدول كاملاً يسرّب
---    purchase_price و wholesale_price لكل منتجاتك.
-create temp table _anon_read(tbl text, cols text) on commit drop;
-insert into _anon_read(tbl, cols) values
-  ('pos_locations', null),
-  ('pos_products',  'code,name,brand,model,color,category,description,barcode,retail_price,active'),
-  ('pos_stock',     null);
--- المسار «ب»: احذف سطرَي pos_products و pos_stock بعد تحديث العارض.
+-- (القائمة البيضاء انتقلت إلى داخل الكتلة 4 — انظر التعليمات هناك)
 
 
 -- ───────────────────────────────────────────────────────────────────
@@ -160,7 +156,20 @@ declare
   ok_cols text;
   missing text;
 begin
-  for r in select tbl, cols from _anon_read loop
+  -- ⚙️ القائمة البيضاء: الجداول التي تبقى مقروءة فقط لـ anon.
+  --    العمود الثاني = الأعمدة المسموح بها (NULL = كل الأعمدة).
+  --    ⚠️ pos_products بأعمدة محددة: منح الجدول كاملاً يسرّب
+  --       purchase_price و wholesale_price.
+  --    المسار «ب» (بعد تحديث العارض ليرسل توكن الدخول): احذف سطرَي
+  --    pos_products و pos_stock من القائمة ثم أعد تشغيل الملف.
+  for r in
+    select *
+    from (values
+      ('pos_locations', null::text),
+      ('pos_products',  'code,name,brand,model,color,category,description,barcode,retail_price,active'),
+      ('pos_stock',     null::text)
+    ) as whitelist(tbl, cols)
+  loop
     if not exists (select 1 from pg_tables where schemaname='public' and tablename=r.tbl) then
       raise notice '⚠️ الجدول % غير موجود — تخطّيته', r.tbl;
       continue;
