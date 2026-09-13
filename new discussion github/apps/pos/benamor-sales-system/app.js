@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260912-4';
+const APP_BUILD='b20260912-5';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -547,11 +547,36 @@ function applyPermissions(){
 }
 function renderRoles(){
   if(!q('rolesBody')) return;
-  q('rolesBody').innerHTML=userRoles.map(r=>`<tr><td class="ltr"><b>${esc(r.identifier)}</b></td><td>${esc(r.display_name||'')}</td><td>${esc(ROLE_LABELS[r.role]||r.role)}</td><td>${r.active?'<span class="badge green">نشط</span>':'<span class="badge gray">متوقف</span>'}</td><td>${esc(r.notes||'')}</td><td><button class="btn secondary" onclick="editRole('${String(r.id).replace(/'/g,"\'")}')">تعديل</button></td></tr>`).join('') || '<tr><td colspan="6">لا توجد صلاحيات بعد. أول مستخدم يدخل يصبح مدير تلقائيًا.</td></tr>';
+  q('rolesBody').innerHTML=userRoles.map(r=>`<tr><td class="ltr"><b>${esc(r.identifier)}</b></td><td>${esc(r.display_name||'')}</td><td>${esc(ROLE_LABELS[r.role]||r.role)}</td><td>${r.active?'<span class="badge green">نشط</span>':'<span class="badge gray">متوقف</span>'}</td><td>${esc(r.notes||'')}</td><td><button class="btn secondary" onclick="editRole('${String(r.id).replace(/'/g,"\'")}')">تعديل</button> <button class="btn secondary" onclick="changeUserCredentials('${r.identifier}')">🔑 الدخول</button></td></tr>`).join('') || '<tr><td colspan="6">لا توجد صلاحيات بعد. أول مستخدم يدخل يصبح مدير تلقائيًا.</td></tr>';
 }
 function editRole(id){
   const r=userRoles.find(x=>x.id===id); if(!r)return;
   q('roleIdentifier').value=r.identifier||''; q('roleDisplayName').value=r.display_name||''; q('roleName').value=r.role||'viewer'; q('roleNotes').value=r.notes||'';
+}
+async function changeUserCredentials(oldId){
+  if(currentRole?.role!=='admin'){toast('هذه العملية للمدير فقط','warn');return;}
+  const newIdRaw=prompt('تغيير بيانات دخول المستخدم: '+oldId+'\n\nالمعرّف الجديد (اتركه كما هو أو فارغاً للإبقاء على الحالي):',oldId||'');
+  if(newIdRaw===null) return;
+  const newId=String(newIdRaw).trim().toLowerCase();
+  if(newId && newId!==oldId && !/^[a-z0-9._-]{2,40}$/.test(newId)){toast('المعرّف الجديد غير صالح — حروف إنجليزية وأرقام فقط (2-40)','warn');return;}
+  const newCodeRaw=prompt('الكود الجديد (6 أحرف على الأقل — اتركه فارغاً للإبقاء على الحالي):','');
+  if(newCodeRaw===null) return;
+  const newCode=String(newCodeRaw).trim();
+  if(newCode && newCode.length<6){toast('الكود الجديد قصير — 6 أحرف على الأقل','warn');return;}
+  const idChanged=newId && newId!==oldId;
+  if(!idChanged && !newCode){toast('لم يتم إدخال أي تغيير','warn');return;}
+  if(!confirm('تأكيد تغيير بيانات الدخول للمستخدم '+oldId+'؟\n'+(idChanged?('• المعرّف الجديد: '+newId+'\n'):'')+(newCode?'• كود دخول جديد: نعم\n':'')+'\nالمستخدم المعني يجب أن يخرج من النظام ويدخل من جديد.')) return;
+  try{
+    showLoading(true);
+    await rpc('update_app_user_credentials',{p_old_identifier:oldId,p_new_identifier:idChanged?newId:null,p_new_code:newCode||null});
+    toast('تم تحديث بيانات الدخول بنجاح ✔ يسري من الدخول القادم','success');
+    await loadAll();
+  }catch(e){
+    console.error('update credentials failed',e);
+    const m=String(e&&e.message||'');
+    toast('تعذر التحديث: '+friendlyError(e)+(m.includes('does not exist')||m.includes('404')?' — شغّل ملف supabase-pos-user-credentials-rpc.sql في Supabase أولاً':''),'error');
+  }
+  finally{showLoading(false);window.__busy=false;}
 }
 
 
@@ -2558,10 +2583,16 @@ q('roleForm').addEventListener('submit', async e=>{
         await rpc('create_app_user',{p_identifier:identifier,p_code:newCode});
       }catch(e){
         console.error('create app user failed',e);
-        throw new Error('تم منع إنشاء مستخدم الدخول. أنشئ المستخدم في Supabase Auth أولاً: '+identifier+'@bag.com ثم احفظ الصلاحية. التفاصيل: '+friendlyError(e));
+        throw new Error('تعذر إنشاء مستخدم الدخول. شغّل ملف supabase-pos-user-credentials-rpc.sql في Supabase أولاً، أو أنشئ المستخدم يدوياً في Supabase ← Authentication ← Users بالبريد '+identifier+'@bag.com ثم احفظ الصلاحية. التفاصيل: '+friendlyError(e));
       }
     }else if(newCode){
-      toast('ملاحظة: تغيير كود مستخدم موجود يتم من Supabase Auth وليس من جدول الصلاحيات','warn');
+      try{
+        await rpc('update_app_user_credentials',{p_old_identifier:identifier,p_new_identifier:null,p_new_code:newCode});
+        toast('تم تحديث كود الدخول — يسري من الدخول القادم','success');
+      }catch(e){
+        console.error('update code failed',e);
+        throw new Error('تعذر تغيير كود الدخول: '+friendlyError(e)+' — تأكد من تشغيل ملف supabase-pos-user-credentials-rpc.sql في Supabase');
+      }
     }
     await rpc('upsert_pos_user_role',{p_identifier:identifier,p_display_name:body.display_name,p_role:body.role,p_notes:body.notes,p_active:true});
     toast(found?'تم تعديل الصلاحية':'تم حفظ الصلاحية وإنشاء مستخدم الدخول','success');
