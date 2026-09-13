@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260912-3';
+const APP_BUILD='b20260912-4';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -3714,7 +3714,7 @@ window.addEventListener('resize',hideCtxMenu);
 document.addEventListener('keydown',e=>{if(e.key==='Escape')hideCtxMenu();});
 
 const CTX_BUILDERS={
-  productsBody(tr){const code=tr.children[1]?.innerText.trim(); if(!code) return []; selectProductRow(code); const p=products.find(x=>String(x.code)===String(code));
+  productsBody(tr){const code=(ctxArg(tr,'selectProductRow')||tr.dataset.code||tr.children[0]?.innerText||'').trim(); if(!code) return []; selectProductRow(code); const p=products.find(x=>String(x.code)===String(code));
     return [{head:p?`${code} — ${p.name||''}`:code},
       {label:'مشاهدة المنتج',icon:'ti-eye',action:()=>viewSelectedProduct()},
       {label:'تعديل المنتج',icon:'ti-edit',action:()=>editSelectedProduct()},
