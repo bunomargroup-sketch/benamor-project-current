@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260912-9';
+const APP_BUILD='b20260912-10';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -1968,7 +1968,7 @@ async function printSale(id){
     const itemCount=items.reduce((a,it)=>a+Number(it.qty||0),0);
     const subtotal=items.reduce((a,it)=>a+Number(it.line_total||0),0);
     const paid=Number(sl.paid_amount||0), balance=Number(sl.balance_due||0);
-    const badge=balance>0?'<span class="badge due">آجل / متبقٍ</span>':'<span class="badge paid">مدفوعة بالكامل</span>'; const dp=String(sl.sale_date||'').split('-'); const dateDisp=(dp.length===3)?(dp[2]+'-'+dp[1]+'-'+dp[0]):String(sl.sale_date||''); const payLine=payRows.length?('<b>'+esc(paymentBreakdownText(payRows))+'</b>'):'<span class="none">لم يتم تسجيل دفعة على هذه الفاتورة.</span>';
+    const badge=balance>0?'<span class="badge due">آجل / متبقٍ</span>':'<span class="badge paid">مدفوعة بالكامل</span>'; const dp=String(sl.sale_date||'').split('-'); const dateDisp=(dp.length===3)?(dp[2]+'-'+dp[1]+'-'+dp[0]):String(sl.sale_date||'');
     const rows=items.map((it,i)=>{const comps=compositeItems.filter(ci=>ci.composite_code===it.product_code); return `<tr><td class="n">${i+1}</td><td class="code ltr">${esc(it.product_code)}</td><td class="name">${esc(it.product_name)}${comps.length?('<div class="sub2 ltr">'+comps.map(ci=>esc(ci.component_code)+'×'+Number(ci.qty||1)).join(' · ')+'</div>'):''}</td><td class="n">${money(it.qty)}</td><td class="n">${money(it.unit_price)}</td><td class="n">${money(it.line_discount||0)}</td><td class="n ttl">${money(it.line_total)}</td></tr>`;}).join('');
     const html=`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>فاتورة بيع ${esc(sl.invoice_no||sl.id.slice(0,8))}</title><style>
 @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
@@ -1979,13 +1979,13 @@ body{font-family:'Cairo',Tahoma,Arial,sans-serif;margin:0;color:#0f172a;line-hei
 .pbtn.ghost{background:#fff;color:#1d4ed8;border:1px solid #c7d2fe}
 .sheet{max-width:800px;margin:14px auto 40px;background:#fff;padding:34px 38px;border-radius:10px;box-shadow:0 8px 30px rgba(2,6,23,.10)}
 .hd{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding-bottom:12px}
-.brand h1{margin:0;color:#0f2a5f;font-size:24px;font-weight:800}
-.brand .sub{color:#64748b;font-size:12px;font-weight:600;margin-top:2px}
+.brand h1{margin:0;color:#0f2a5f;font-size:27px;font-weight:800}
+.brand .sub{color:#64748b;font-size:13px;font-weight:600;margin-top:2px}
 .doc{text-align:left}
-.doc .title{font-size:26px;font-weight:800;color:#0f172a;line-height:1.15}
-.doc .invno{direction:ltr;font-size:15px;font-weight:700;color:#1d4ed8;margin-top:4px;font-variant-numeric:tabular-nums}
-.doc .date{direction:ltr;color:#475569;font-size:12.5px;margin-top:2px;font-variant-numeric:tabular-nums}
-.badge{display:inline-block;border-radius:6px;padding:3px 10px;font-size:11.5px;font-weight:700;margin-top:8px}
+.doc .title{font-size:29px;font-weight:800;color:#0f172a;line-height:1.15}
+.doc .invno{direction:ltr;font-size:16.5px;font-weight:700;color:#1d4ed8;margin-top:4px;font-variant-numeric:tabular-nums}
+.doc .date{direction:ltr;color:#475569;font-size:13.5px;margin-top:2px;font-variant-numeric:tabular-nums}
+.badge{display:inline-block;border-radius:6px;padding:4px 11px;font-size:12.5px;font-weight:700;margin-top:8px}
 .badge.due{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}
 .badge.paid{background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0}
 .brandline{height:3px;background:linear-gradient(90deg,#0f2a5f,#1d4ed8);border-radius:2px;margin-bottom:14px}
@@ -1994,52 +1994,53 @@ body{font-family:'Cairo',Tahoma,Arial,sans-serif;margin:0;color:#0f172a;line-hei
 .meta .f+.f{border-right:1px solid #eef1f6}
 .meta .f:last-child{padding-left:0}
 .meta .f:first-child{padding-right:0}
-.meta .lbl{color:#94a3b8;font-size:11px;font-weight:600;margin-bottom:1px}
-.meta .val{color:#0f172a;font-size:13.5px;font-weight:700}
+.meta .lbl{color:#94a3b8;font-size:12px;font-weight:600;margin-bottom:1px}
+.meta .val{color:#0f172a;font-size:15px;font-weight:700}
 table.items{width:100%;border-collapse:collapse;margin:0 0 18px}
-.items thead th{background:#f4f6fa;color:#334155;font-size:12px;font-weight:700;padding:9px 10px;border-bottom:2px solid #dbe3ee;text-align:right}
+.items thead th{background:#f4f6fa;color:#334155;font-size:13px;font-weight:700;padding:11px 10px;border-bottom:2px solid #dbe3ee;text-align:right}
 .items thead th.n{text-align:center}
-.items td{padding:9px 10px;border-bottom:1px solid #eef1f6;vertical-align:top;font-size:13px}
+.items td{padding:11px 10px;border-bottom:1px solid #eef1f6;vertical-align:top;font-size:14.5px}
 .items .n{text-align:center;font-variant-numeric:tabular-nums;direction:ltr}
-.items .code{direction:ltr;text-align:center;color:#64748b;font-size:11.5px;font-family:ui-monospace,'Courier New',monospace}
+.items .code{direction:ltr;text-align:center;color:#64748b;font-size:12.5px;font-family:ui-monospace,'Courier New',monospace}
 .items .name{font-weight:600}
-.items .sub2{font-size:10px;color:#7c8db5;font-weight:600;margin-top:2px}
+.items .sub2{font-size:11px;color:#7c8db5;font-weight:600;margin-top:2px}
 .items .ttl{font-weight:700}
 .items tbody tr:last-child td{border-bottom:2px solid #dbe3ee}
 .summary{display:flex;justify-content:space-between;gap:26px;align-items:flex-start;page-break-inside:avoid}
 .pay{flex:1;min-width:0}
-.sec-t{font-size:13.5px;font-weight:800;color:#0f2a5f;margin-bottom:6px}
-.pay .row{font-size:12.5px;color:#334155;padding:3px 0}
+.sec-t{font-size:15px;font-weight:800;color:#0f2a5f;margin-bottom:7px}
+.pay .row{font-size:14px;color:#334155;padding:4px 0}
 .pay .row b{color:#0f172a;font-variant-numeric:tabular-nums}
-.pay .note{color:#64748b;font-size:12px;margin-top:6px;line-height:1.7}
-.pay .none{color:#94a3b8;font-size:12.5px}
-.totals{width:292px;flex-shrink:0}
-.totals .r{display:flex;justify-content:space-between;align-items:center;padding:6px 12px;font-size:13px;color:#475569}
+.pay .note{color:#64748b;font-size:13px;margin-top:7px;line-height:1.7}
+.pay .none{color:#94a3b8;font-size:13.5px}
+.totals{width:312px;flex-shrink:0}
+.totals .r{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;font-size:14.5px;color:#475569}
 .totals .r b{font-variant-numeric:tabular-nums;color:#0f172a}
 .totals .divider{border-top:1px solid #dbe3ee;margin:3px 12px}
-.totals .grand{display:flex;justify-content:space-between;align-items:center;padding:7px 12px;font-size:15px;font-weight:800;color:#0f2a5f}
-.totals .grand b{color:#0f2a5f;font-size:16px;font-variant-numeric:tabular-nums}
-.totals .due{background:#0f2a5f;border-radius:8px;margin-top:8px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center}
-.totals .due span{color:#fff;font-size:14px;font-weight:700}
-.totals .due b{color:#fff;font-size:17px;font-weight:800;font-variant-numeric:tabular-nums}
-.totals .due.zero{background:#f4f6fa}
+.totals .grand{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;font-size:17px;font-weight:800;color:#0f2a5f}
+.totals .grand b{color:#0f2a5f;font-size:18px;font-variant-numeric:tabular-nums}
+.totals .due{background:#0f2a5f;border-radius:8px;margin-top:9px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center}
+.totals .due span{color:#fff;font-size:15.5px;font-weight:700}
+.totals .due b{color:#fff;font-size:19px;font-weight:800;font-variant-numeric:tabular-nums}
+.totals .due.zero{background:#f0fdf4;border:1px solid #bbf7d0;justify-content:center}
 .totals .due.zero span,.totals .due.zero b{color:#15803d}
 .signs{display:flex;gap:56px;margin-top:38px;page-break-inside:avoid}
 .sg{flex:1;text-align:center}
-.sg .who{font-size:12.5px;font-weight:700;color:#475569;margin-bottom:46px}
+.sg .who{font-size:13.5px;font-weight:700;color:#475569;margin-bottom:48px}
 .sg .line{border-top:1px solid #94a3b8;padding-top:6px;font-size:10.5px;color:#94a3b8}
 .ft{margin-top:24px;border-top:1px solid #eef1f6;padding-top:11px;text-align:center;page-break-inside:avoid}
-.ft .thx{color:#0f2a5f;font-size:13px;font-weight:700}
-.ft .site{direction:ltr;color:#94a3b8;font-size:11px;margin-top:1px;letter-spacing:.4px}
+.ft .thx{color:#0f2a5f;font-size:14.5px;font-weight:700}
+.ft .site{direction:ltr;color:#475569;font-size:13px;font-weight:700;margin-top:2px;letter-spacing:.6px}
 @media print{
   body{background:#fff}
   .bar{display:none}
-  .sheet{box-shadow:none;margin:0;max-width:none;padding:0;border-radius:0}
+  .sheet{box-shadow:none;margin:0;max-width:none;border-radius:0;padding:14mm 15mm 11mm;display:flex;flex-direction:column;min-height:268mm}
   .items thead{display:table-header-group}
   .items tr{page-break-inside:avoid}
+  .signs{margin-top:auto}
   *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
-@page{size:A4;margin:15mm}
+@page{size:A4;margin:0}
 </style></head><body>
 <div class="bar"><button class="pbtn" onclick="window.print()">طباعة</button><button class="pbtn ghost" onclick="window.close()">إغلاق</button></div>
 <div class="sheet">
@@ -2063,9 +2064,11 @@ table.items{width:100%;border-collapse:collapse;margin:0 0 18px}
   <div class="summary">
     <div class="pay">
       <div class="sec-t">تفاصيل الدفع</div>
-      <div class="row">عدد الأصناف: <b>${items.length}</b></div>
+      <div class="row">طريقة الدفع: <b>${esc(typeLabel(sl.payment_method))}</b></div>
+      <div class="row">المدفوع: <b>${money(paid)} ${esc(APP_CONFIG.currency)}</b></div>
       <div class="row">إجمالي القطع: <b>${money(itemCount)}</b></div>
-      <div class="row">تفصيل الدفع: ${payLine}</div>
+      <div class="row">عدد الأصناف: <b>${items.length}</b></div>
+      ${payRows.length?'':'<div class="row"><span class="none">لم يتم تسجيل دفعة على هذه الفاتورة.</span></div>'}
       ${sl.notes?'<div class="note"><b>ملاحظات:</b> '+esc(sl.notes)+'</div>':''}
     </div>
     <div class="totals">
@@ -2074,7 +2077,7 @@ table.items{width:100%;border-collapse:collapse;margin:0 0 18px}
       <div class="r"><span>المدفوع</span><b>${money(paid)} ${esc(APP_CONFIG.currency)}</b></div>
       <div class="divider"></div>
       <div class="grand"><span>الإجمالي</span><b>${money(sl.total)} ${esc(APP_CONFIG.currency)}</b></div>
-      <div class="due ${balance>0?'':'zero'}"><span>المتبقي</span><b>${money(balance)} ${esc(APP_CONFIG.currency)}</b></div>
+      <div class="due ${balance>0?'':'zero'}">${balance>0?('<span>المتبقي</span><b>'+money(balance)+' '+esc(APP_CONFIG.currency)+'</b>'):'<span>مدفوعة بالكامل ✓</span>'}</div>
     </div>
   </div>
   <div class="signs">
