@@ -179,7 +179,8 @@ declare
   v_old_id text := lower(trim(coalesce(p_old_identifier,'')));
   v_old_email text := v_old_id || '@bag.com';
   v_new_id text := lower(trim(coalesce(p_new_identifier,'')));
-  v_new_email text;
+  v_target_id text;
+  v_target_email text;
   v_uid uuid;
 begin
   if public.pos_current_role() <> 'admin' then
@@ -190,45 +191,72 @@ begin
     raise exception 'OLD_IDENTIFIER_REQUIRED';
   end if;
 
-  select id into v_uid from auth.users where lower(email) = v_old_email limit 1;
-  if v_uid is null then
-    raise exception 'USER_NOT_FOUND: %', v_old_email;
-  end if;
-
-  -- تغيير المعرّف (اختياري)
+  -- المعرّف الهدف: الجديد إن قُدّم وصالحاً، وإلا القديم
   if v_new_id <> '' and v_new_id <> v_old_id then
     if v_new_id !~ '^[a-z0-9._-]{2,40}$' then
       raise exception 'INVALID_IDENTIFIER (حروف إنجليزية وأرقام فقط، 2-40)';
     end if;
-    v_new_email := v_new_id || '@bag.com';
-    if exists (select 1 from auth.users where lower(email) = v_new_email and id <> v_uid) then
-      raise exception 'IDENTIFIER_ALREADY_EXISTS: %', v_new_email;
-    end if;
-
-    update auth.users set email = v_new_email, updated_at = now() where id = v_uid;
-    update auth.identities
-       set identity_data = jsonb_set(identity_data, '{email}', to_jsonb(v_new_email)),
-           updated_at = now()
-     where user_id = v_uid;
-
-    update public.pos_user_roles
-       set identifier = v_new_id, updated_at = now()
-     where lower(identifier) = v_old_id;
+    v_target_id := v_new_id;
   else
-    v_new_email := v_old_email;
+    v_target_id := v_old_id;
+  end if;
+  v_target_email := v_target_id || '@bag.com';
+
+  if coalesce(p_new_code,'') <> '' and length(p_new_code) < 6 then
+    raise exception 'CODE_TOO_SHORT (6 أحرف على الأقل)';
   end if;
 
-  -- تغيير الكود (اختياري)
-  if coalesce(p_new_code,'') <> '' then
-    if length(p_new_code) < 6 then
-      raise exception 'CODE_TOO_SHORT (6 أحرف على الأقل)';
+  select id into v_uid from auth.users where lower(email) = v_old_email limit 1;
+
+  if v_uid is not null then
+    -- حساب موجود: تحديث البريد و/أو الكود
+    if v_target_id <> v_old_id then
+      if exists (select 1 from auth.users where lower(email) = v_target_email and id <> v_uid) then
+        raise exception 'IDENTIFIER_ALREADY_EXISTS: %', v_target_email;
+      end if;
+      update auth.users set email = v_target_email, updated_at = now() where id = v_uid;
+      update auth.identities
+         set identity_data = jsonb_set(identity_data, '{email}', to_jsonb(v_target_email)), updated_at = now()
+       where user_id = v_uid;
     end if;
-    update auth.users
-       set encrypted_password = crypt(p_new_code, gen_salt('bf')), updated_at = now()
-     where id = v_uid;
+    if coalesce(p_new_code,'') <> '' then
+      update auth.users set encrypted_password = crypt(p_new_code, gen_salt('bf')), updated_at = now() where id = v_uid;
+    end if;
+  else
+    -- لا يوجد حساب دخول لهذا المعرّف (دور بدون حساب — مثل مستخدم أُضيف يدوياً):
+    -- أدخل كوداً جديداً وسيُنشأ حساب الدخول ويرتبط بالدور الموجود تلقائياً
+    if coalesce(p_new_code,'') = '' then
+      raise exception 'USER_NOT_FOUND: % — لا يوجد حساب دخول بهذا المعرّف. أدخل كوداً جديداً لإنشائه.', v_old_email;
+    end if;
+    if exists (select 1 from auth.users where lower(email) = v_target_email) then
+      raise exception 'IDENTIFIER_ALREADY_EXISTS: %', v_target_email;
+    end if;
+    insert into auth.users (
+      instance_id, aud, role, email, encrypted_password,
+      email_confirmed_at, created_at, updated_at,
+      raw_app_meta_data, raw_user_meta_data
+    ) values (
+      '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', v_target_email,
+      crypt(p_new_code, gen_salt('bf')),
+      now(), now(), now(),
+      '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb
+    ) returning id into v_uid;
+
+    insert into auth.identities (
+      provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at
+    ) values (
+      v_uid::text, v_uid,
+      jsonb_build_object('sub', v_uid::text, 'email', v_target_email, 'email_verified', true),
+      'email', now(), now(), now()
+    );
   end if;
 
-  return v_new_email;
+  -- مزامنة جدول الصلاحيات عند تغيير المعرّف
+  if v_target_id <> v_old_id then
+    update public.pos_user_roles set identifier = v_target_id, updated_at = now() where lower(identifier) = v_old_id;
+  end if;
+
+  return v_target_email;
 end;
 $$;
 
