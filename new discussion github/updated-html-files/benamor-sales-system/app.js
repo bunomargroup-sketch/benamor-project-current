@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260912-10';
+const APP_BUILD='b20260912-11';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -440,9 +440,9 @@ function resolveSelectedLoginBranch(selectedValue, selectedText){
 const ROLE_LABELS={admin:'مدير',seller_11:'بائع فرع 11 يونيو',seller_sarraj:'بائع فرع السراج',sales_purchase:'بيع وشراء الفرعين',warehouse:'مخزن',accountant:'محاسب',viewer:'مشاهدة فقط'};
 const ROLE_TABS={
   admin:['dashboard','locations','products','suppliers','ledger','payments','sales','salesList','proformas','customers','purchases','stock','stockCount','composites','transfers','expensesQuick','dailyCashClosing','finance','reports','auditLog','users','settings'],
-  seller_11:['dashboard','products','sales','salesList','proformas','stock','expensesQuick','dailyCashClosing'],
-  seller_sarraj:['dashboard','products','sales','salesList','proformas','stock','expensesQuick','dailyCashClosing'],
-  sales_purchase:['dashboard','products','suppliers','sales','salesList','proformas','customers','purchases','stock','stockCount','composites','expensesQuick','dailyCashClosing'],
+  seller_11:['dashboard','products','sales','salesList','proformas','stock','transfers','expensesQuick','dailyCashClosing'],
+  seller_sarraj:['dashboard','products','sales','salesList','proformas','stock','transfers','expensesQuick','dailyCashClosing'],
+  sales_purchase:['dashboard','products','suppliers','sales','salesList','proformas','customers','purchases','stock','transfers','stockCount','composites','expensesQuick','dailyCashClosing'],
   warehouse:['dashboard','products','stock','stockCount','composites','transfers','purchases'],
   accountant:['dashboard','suppliers','ledger','payments','customers','expensesQuick','dailyCashClosing','finance','reports','auditLog'],
   viewer:['dashboard','products','stock','reports']
