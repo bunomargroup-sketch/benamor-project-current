@@ -20,7 +20,8 @@
 
 begin;
 
-create extension if not exists pgcrypto;
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
 
 -- ============================================================
 -- دوال مساعدة (نفس تعريفات ملف الصلاحيات — create or replace آمن)
@@ -115,7 +116,7 @@ create or replace function public.create_app_user(
 returns uuid
 language plpgsql
 security definer
-set search_path = auth, public
+set search_path = auth, public, extensions
 as $$
 declare
   v_identifier text := lower(trim(coalesce(p_identifier,'')));
@@ -173,7 +174,7 @@ create or replace function public.update_app_user_credentials(
 returns text
 language plpgsql
 security definer
-set search_path = auth, public
+set search_path = auth, public, extensions
 as $$
 declare
   v_old_id text := lower(trim(coalesce(p_old_identifier,'')));
