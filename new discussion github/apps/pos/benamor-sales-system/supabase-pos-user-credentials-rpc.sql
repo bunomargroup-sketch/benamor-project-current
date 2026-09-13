@@ -24,6 +24,23 @@ create schema if not exists extensions;
 create extension if not exists pgcrypto with schema extensions;
 
 -- ============================================================
+-- إصلاح فوري: أي مستخدم أُنشئ يدوياً بأعمدة رموز NULL يفشل دخوله
+-- برسالة "Database error querying schema" — نحوّلها لنص فارغ
+-- (لا يمس المستخدمين السليمين — فقط صفوف NULL)
+-- ============================================================
+update auth.users set
+  confirmation_token         = coalesce(confirmation_token, ''),
+  email_change               = coalesce(email_change, ''),
+  email_change_token_new     = coalesce(email_change_token_new, ''),
+  email_change_token_current = coalesce(email_change_token_current, ''),
+  recovery_token             = coalesce(recovery_token, '')
+where confirmation_token is null
+   or email_change is null
+   or email_change_token_new is null
+   or email_change_token_current is null
+   or recovery_token is null;
+
+-- ============================================================
 -- دوال مساعدة (نفس تعريفات ملف الصلاحيات — create or replace آمن)
 -- ============================================================
 create or replace function public.pos_current_identifier()
@@ -144,12 +161,14 @@ begin
   insert into auth.users (
     id, instance_id, aud, role, email, encrypted_password,
     email_confirmed_at, created_at, updated_at,
-    raw_app_meta_data, raw_user_meta_data
+    raw_app_meta_data, raw_user_meta_data,
+        confirmation_token, email_change, email_change_token_new, recovery_token
   ) values (
     v_uid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', v_email,
     crypt(p_code, gen_salt('bf')),
     now(), now(), now(),
-    '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb
+    '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+        '', '', '', ''
   );
 
   insert into auth.identities (
@@ -238,12 +257,14 @@ begin
     insert into auth.users (
       id, instance_id, aud, role, email, encrypted_password,
       email_confirmed_at, created_at, updated_at,
-      raw_app_meta_data, raw_user_meta_data
+      raw_app_meta_data, raw_user_meta_data,
+          confirmation_token, email_change, email_change_token_new, recovery_token
     ) values (
       v_uid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', v_target_email,
       crypt(p_new_code, gen_salt('bf')),
       now(), now(), now(),
-      '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb
+      '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+          '', '', '', ''
     );
 
     insert into auth.identities (
