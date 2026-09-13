@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260912-12';
+const APP_BUILD='b20260912-13';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -389,7 +389,7 @@ function renderDashboard(){
   q('salesCount').textContent=sales.length;
   q('customersDebtTotal').textContent=money(customers.reduce((a,c)=>a+Math.max(0,Number(c.balance||0)),0));
   q('suppliersBalance').textContent=money(suppliers.reduce((a,s)=>a+Number(s.balance||0),0));
-  const today=new Date().toISOString().slice(0,10); const todaySales=sales.filter(s=>s.sale_date===today);
+  const today=new Date().toISOString().slice(0,10); const scScope=sellerBranchScope(); const todaySales=sales.filter(s=>s.sale_date===today && (!scScope||s.location_id===scScope));
   if(q('todaySalesTotal')) q('todaySalesTotal').textContent=money(todaySales.reduce((a,s)=>a+Number(s.total||0),0));
   if(q('todaySalesCount')) q('todaySalesCount').textContent=todaySales.length;
   renderDashboardLists();
@@ -398,7 +398,8 @@ function renderDashboard(){
 
 
 function renderDashboardLists(){
-  if(q('dashLastSalesBody')) q('dashLastSalesBody').innerHTML=sales.slice(0,5).map(sl=>{const l=locations.find(x=>x.id===sl.location_id); const c=customers.find(x=>x.id===sl.customer_id); return `<tr><td class="ltr"><b>${esc(sl.invoice_no||sl.id.slice(0,8))}</b></td><td>${esc(sl.sale_date)}</td><td>${esc(l?.name)}</td><td>${esc(c?.name||'زبون نقدي')}</td><td><b>${money(sl.total)}</b></td><td>${money(sl.balance_due)}</td></tr>`}).join('')||'<tr><td colspan="5">لا توجد فواتير بيع بعد.</td></tr>';
+  const scScope=sellerBranchScope();
+  if(q('dashLastSalesBody')) q('dashLastSalesBody').innerHTML=(scScope?sales.filter(sl=>sl.location_id===scScope):sales).slice(0,5).map(sl=>{const l=locations.find(x=>x.id===sl.location_id); const c=customers.find(x=>x.id===sl.customer_id); return `<tr><td class="ltr"><b>${esc(sl.invoice_no||sl.id.slice(0,8))}</b></td><td>${esc(sl.sale_date)}</td><td>${esc(l?.name)}</td><td>${esc(c?.name||'زبون نقدي')}</td><td><b>${money(sl.total)}</b></td><td>${money(sl.balance_due)}</td></tr>`}).join('')||'<tr><td colspan="5">لا توجد فواتير بيع بعد.</td></tr>';
   if(q('dashMovementsBody')) q('dashMovementsBody').innerHTML=stockMovements.slice(0,8).map(m=>{const l=locations.find(x=>x.id===m.location_id); return `<tr><td>${esc((m.movement_date||m.created_at||'').replace('T',' ').slice(0,19))}</td><td>${esc(typeLabel(m.movement_type))}</td><td>${esc(m.product_name||m.product_code)}</td><td>${esc(l?.name)}</td><td class="${Number(m.qty_change)>0?'stock-positive':'stock-negative'}"><b>${money(m.qty_change)}</b></td></tr>`}).join('')||'<tr><td colspan="5">لا توجد حركات مخزون بعد.</td></tr>';
 }
 
@@ -520,6 +521,12 @@ function updateAuthUI(){
   q('userLabel').textContent=logged?`${appUser.identifier} - ${ROLE_LABELS[currentRole?.role]||'بدون صلاحية'}${appUser.branch_name?' - '+appUser.branch_name:''}`:'';
 }
 function canTab(tab){return (ROLE_TABS[currentRole?.role]||[]).includes(tab)}
+function sellerBranchScope(){
+  const role=currentRole?.role;
+  if(role==='seller_11'){const l=locations.find(x=>x.name==='فرع 11 يونيو'); return l?.id||null;}
+  if(role==='seller_sarraj'){const l=locations.find(x=>x.name==='فرع السراج'); return l?.id||null;}
+  return null;
+}
 function tidyNavGroups(){
   document.querySelectorAll('nav .nav-group').forEach(g=>{
     let n=g.nextElementSibling, anyVisible=false;
@@ -1514,9 +1521,10 @@ async function adjustStock(location_id, item, qtyChange, movementType, reference
   });
 }
 function renderTransfers(){
-  q('transfersBody').innerHTML = transfers.map(t=>{
+  const scope=sellerBranchScope(); const list=scope?transfers.filter(t=>t.from_location_id===scope||t.to_location_id===scope):transfers;
+  q('transfersBody').innerHTML = list.map(t=>{
     const from=locations.find(x=>x.id===t.from_location_id); const to=locations.find(x=>x.id===t.to_location_id);
-    return `<tr><td class="ltr"><b>${esc(t.transfer_no||t.id.slice(0,8))}</b></td><td>${t.transfer_date}</td><td>${from?.name||''}</td><td>${to?.name||''}</td><td><span class="badge green">${typeLabel(t.status)}</span></td><td>${t.notes||''}</td><td><button class="btn secondary" onclick="openTransferForEdit('${t.id}')">فتح / تعديل</button></td></tr>`;
+    return `<tr><td class="ltr"><b>${esc(t.transfer_no||t.id.slice(0,8))}</b></td><td>${t.transfer_date}</td><td>${from?.name||''}</td><td>${to?.name||''}</td><td><span class="badge green">${typeLabel(t.status)}</span></td><td>${t.notes||''}</td><td><button class="btn secondary" onclick="openTransferForEdit('${t.id}')">فتح / تعديل</button> <button class="btn secondary" onclick="printTransfer('${t.id}')">🖨️ طباعة</button></td></tr>`;
   }).join('') || '<tr><td colspan="7">لا توجد تحويلات مخزون بعد.</td></tr>';
 }
 function addOrIncrementTransferProduct(p, qty=1){
@@ -1591,6 +1599,7 @@ function saleSearchText(sl){
   return [sl.invoice_no,sl.id,sl.sale_date,c?.name,c?.phone,l?.name,sl.payment_method,sl.status,sl.notes,prodText].filter(Boolean).join(' ');
 }
 function saleMatchesFilters(sl){
+  const scope=sellerBranchScope(); if(scope && sl.location_id!==scope) return false;
   const term=(q('saleListSearch')?.value||'').trim(); if(term && !smartMatch(term,saleSearchText(sl))) return false;
   const from=q('saleFilterFrom')?.value||'', to=q('saleFilterTo')?.value||'', month=q('saleFilterMonth')?.value||'', year=(q('saleFilterYear')?.value||'').trim();
   const d=sl.sale_date||''; if(from && d<from) return false; if(to && d>to) return false; if(month && !d.startsWith(month)) return false; if(year && !d.startsWith(year)) return false;
@@ -2089,6 +2098,108 @@ table.items{width:100%;border-collapse:collapse;margin:0 0 18px}
     showInAppPrint(html);
   }catch(err){console.error(err);toast('خطأ في طباعة الفاتورة: '+err.message)}
 }
+async function printTransfer(id){
+  try{
+    const t=transfers.find(x=>x.id===id) || (await api('pos_stock_transfers',{qs:`?select=*&id=eq.${id}&limit=1`}))[0];
+    if(!t){toast('لم يتم العثور على التحويل','warn');return;}
+    const items=await api('pos_stock_transfer_items',{qs:`?select=*&transfer_id=eq.${id}&order=created_at.asc`});
+    const from=locations.find(x=>x.id===t.from_location_id); const to=locations.find(x=>x.id===t.to_location_id);
+    const inv=t.transfer_no||String(t.id).slice(0,8);
+    const dp=String(t.transfer_date||'').split('-'); const dateDisp=(dp.length===3)?(dp[2]+'-'+dp[1]+'-'+dp[0]):String(t.transfer_date||'');
+    const totalQty=(items||[]).reduce((a,x)=>a+Number(x.qty||0),0);
+    const rows=(items||[]).map((it,i)=>`<tr><td class="n">${i+1}</td><td class="code ltr">${esc(it.product_code)}</td><td class="name">${esc(it.product_name)}</td><td class="n"><b>${money(it.qty)}</b></td></tr>`).join('');
+    const html=`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>إشعار تحويل ${esc(inv)}</title><style>
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
+*{box-sizing:border-box}
+body{font-family:'Cairo',Tahoma,Arial,sans-serif;margin:0;color:#0f172a;line-height:1.55;background:#f1f5f9}
+.bar{max-width:800px;margin:14px auto 0;display:flex;justify-content:flex-end;gap:8px;padding:0 4px}
+.pbtn{background:#1d4ed8;color:#fff;border:0;border-radius:8px;padding:9px 18px;font:inherit;font-weight:700;cursor:pointer}
+.pbtn.ghost{background:#fff;color:#1d4ed8;border:1px solid #c7d2fe}
+.sheet{max-width:800px;margin:14px auto 40px;background:#fff;padding:34px 38px;border-radius:10px;box-shadow:0 8px 30px rgba(2,6,23,.10)}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding-bottom:12px}
+.brand h1{margin:0;color:#0f2a5f;font-size:27px;font-weight:800}
+.brand .sub{color:#64748b;font-size:13px;font-weight:600;margin-top:2px}
+.doc{text-align:left}
+.doc .title{font-size:29px;font-weight:800;color:#0f172a;line-height:1.15}
+.doc .invno{direction:ltr;font-size:16.5px;font-weight:700;color:#1d4ed8;margin-top:4px}
+.doc .date{direction:ltr;color:#475569;font-size:13.5px;margin-top:2px}
+.brandline{height:3px;background:linear-gradient(90deg,#0f2a5f,#1d4ed8);border-radius:2px;margin-bottom:14px}
+.meta{display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid #eef1f6;padding:10px 0 12px;margin-bottom:16px}
+.meta .f{padding:0 14px}.meta .f+.f{border-right:1px solid #eef1f6}
+.meta .f:first-child{padding-right:0}.meta .f:last-child{padding-left:0}
+.meta .lbl{color:#94a3b8;font-size:12px;font-weight:600;margin-bottom:1px}
+.meta .val{color:#0f172a;font-size:15px;font-weight:700}
+table.items{width:100%;border-collapse:collapse;margin:0 0 18px}
+.items thead th{background:#f4f6fa;color:#334155;font-size:13px;font-weight:700;padding:11px 10px;border-bottom:2px solid #dbe3ee;text-align:right}
+.items thead th.n{text-align:center}
+.items td{padding:11px 10px;border-bottom:1px solid #eef1f6;vertical-align:top;font-size:14.5px}
+.items .n{text-align:center;font-variant-numeric:tabular-nums;direction:ltr}
+.items .code{direction:ltr;text-align:center;color:#64748b;font-size:12.5px;font-family:ui-monospace,'Courier New',monospace}
+.items .name{font-weight:600}
+.items tbody tr:last-child td{border-bottom:2px solid #dbe3ee}
+.summary{display:flex;justify-content:space-between;gap:26px;align-items:flex-start;page-break-inside:avoid}
+.pay{flex:1;min-width:0}
+.sec-t{font-size:15px;font-weight:800;color:#0f2a5f;margin-bottom:7px}
+.pay .row{font-size:14px;color:#334155;padding:4px 0}
+.pay .row b{color:#0f172a;font-variant-numeric:tabular-nums}
+.totals{width:250px;flex-shrink:0}
+.totals .r{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;font-size:14.5px;color:#475569}
+.totals .r b{font-variant-numeric:tabular-nums;color:#0f172a}
+.totals .due{background:#0f2a5f;border-radius:8px;margin-top:8px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center}
+.totals .due span{color:#fff;font-size:15.5px;font-weight:700}
+.totals .due b{color:#fff;font-size:19px;font-weight:800;font-variant-numeric:tabular-nums}
+.signs{display:flex;gap:56px;margin-top:38px;page-break-inside:avoid}
+.sg{flex:1;text-align:center}
+.sg .who{font-size:13.5px;font-weight:700;color:#475569;margin-bottom:48px}
+.sg .line{border-top:1px solid #94a3b8;padding-top:6px;font-size:10.5px;color:#94a3b8}
+.ft{margin-top:24px;border-top:1px solid #eef1f6;padding-top:11px;text-align:center;page-break-inside:avoid}
+.ft .thx{color:#0f2a5f;font-size:14.5px;font-weight:700}
+.ft .site{direction:ltr;color:#475569;font-size:13px;font-weight:700;margin-top:2px;letter-spacing:.6px}
+@media print{
+  body{background:#fff}.bar{display:none}
+  .sheet{box-shadow:none;margin:0;max-width:none;border-radius:0;padding:14mm 15mm 11mm;display:flex;flex-direction:column;min-height:268mm}
+  .items thead{display:table-header-group}
+  .items tr{page-break-inside:avoid}
+  .signs{margin-top:auto}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+@page{size:A4;margin:0}
+</style></head><body>
+<div class="bar"><button class="pbtn" onclick="window.print()">طباعة</button><button class="pbtn ghost" onclick="window.close()">إغلاق</button></div>
+<div class="sheet">
+  <div class="hd">
+    <div class="brand"><h1>${esc(APP_CONFIG.businessName)}</h1><div class="sub">${esc(APP_CONFIG.tagline)}</div></div>
+    <div class="doc"><div class="title">إشعار تحويل مخزون</div><div class="invno">${esc(inv)}</div><div class="date">${esc(dateDisp)}</div></div>
+  </div>
+  <div class="brandline"></div>
+  <div class="meta">
+    <div class="f"><div class="lbl">من (المرسل)</div><div class="val">${esc(from?.name||'-')}</div></div>
+    <div class="f"><div class="lbl">إلى (المستلم)</div><div class="val">${esc(to?.name||'-')}</div></div>
+    <div class="f"><div class="lbl">الحالة</div><div class="val">${esc(typeLabel(t.status))}</div></div>
+  </div>
+  <table class="items"><thead><tr><th class="n">#</th><th style="text-align:center">الكود</th><th>الصنف</th><th class="n">الكمية</th></tr></thead><tbody>${rows}</tbody></table>
+  <div class="summary">
+    <div class="pay">
+      <div class="sec-t">تفاصيل التحويل</div>
+      <div class="row">عدد الأصناف: <b>${(items||[]).length}</b></div>
+      <div class="row">التاريخ: <b>${esc(t.transfer_date||'')}</b></div>
+      ${t.notes?'<div class="row">ملاحظات: <b>'+esc(t.notes)+'</b></div>':''}
+    </div>
+    <div class="totals">
+      <div class="r"><span>عدد الأصناف</span><b>${(items||[]).length}</b></div>
+      <div class="due"><span>إجمالي القطع</span><b>${money(totalQty)}</b></div>
+    </div>
+  </div>
+  <div class="signs">
+    <div class="sg"><div class="who">توقيع المستلم</div><div class="line">الاسم والتوقيع</div></div>
+    <div class="sg"><div class="who">توقيع المرسل</div><div class="line">الاسم والتوقيع</div></div>
+  </div>
+  <div class="ft"><div class="thx">شكرًا لتعاملكم معنا — ${esc(APP_CONFIG.businessName)}</div><div class="site">benamorgroup.store</div></div>
+</div></body></html>`;
+    showInAppPrint(html);
+  }catch(err){console.error(err);toast('خطأ في طباعة التحويل: '+err.message)}
+}
+
 async function deleteSale(id){
   if(currentRole?.role!=='admin'){toast('حذف الفواتير للمدير فقط','warn');return;}
   const sl=sales.find(x=>x.id===id); if(!sl){toast('لم يتم العثور على الفاتورة','warn');return;}
@@ -3291,6 +3402,7 @@ function fillDailyCashBranches(){
   const old=el.value || appUser?.branch_id || '';
   el.innerHTML='<option value="">كل الفروع</option>'+locations.filter(l=>l.is_sales_location||l.location_type==='branch').map(l=>`<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('');
   if([...el.options].some(o=>o.value===old)) el.value=old;
+  const sc=sellerBranchScope(); if(sc){el.value=sc; el.disabled=true;}
 }
 function dailyCashCountedKey(date, branch){ return `posDailyCountedCash_${branch||'all'}_${date||''}`; }
 function dailyCashSellerForSale(saleId){
