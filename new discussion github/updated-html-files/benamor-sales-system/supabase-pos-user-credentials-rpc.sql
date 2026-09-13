@@ -139,21 +139,23 @@ begin
     raise exception 'USER_ALREADY_EXISTS: %', v_email;
   end if;
 
+  v_uid := gen_random_uuid();
+
   insert into auth.users (
-    instance_id, aud, role, email, encrypted_password,
+    id, instance_id, aud, role, email, encrypted_password,
     email_confirmed_at, created_at, updated_at,
     raw_app_meta_data, raw_user_meta_data
   ) values (
-    '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', v_email,
+    v_uid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', v_email,
     crypt(p_code, gen_salt('bf')),
     now(), now(), now(),
     '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb
-  ) returning id into v_uid;
+  );
 
   insert into auth.identities (
-    provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at
+    id, provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at
   ) values (
-    v_uid::text, v_uid,
+    gen_random_uuid(), v_uid::text, v_uid,
     jsonb_build_object('sub', v_uid::text, 'email', v_email, 'email_verified', true),
     'email', now(), now(), now()
   );
@@ -232,21 +234,22 @@ begin
     if exists (select 1 from auth.users where lower(email) = v_target_email) then
       raise exception 'IDENTIFIER_ALREADY_EXISTS: %', v_target_email;
     end if;
+    v_uid := gen_random_uuid();
     insert into auth.users (
-      instance_id, aud, role, email, encrypted_password,
+      id, instance_id, aud, role, email, encrypted_password,
       email_confirmed_at, created_at, updated_at,
       raw_app_meta_data, raw_user_meta_data
     ) values (
-      '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', v_target_email,
+      v_uid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', v_target_email,
       crypt(p_new_code, gen_salt('bf')),
       now(), now(), now(),
       '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb
-    ) returning id into v_uid;
+    );
 
     insert into auth.identities (
-      provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at
+      id, provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at
     ) values (
-      v_uid::text, v_uid,
+      gen_random_uuid(), v_uid::text, v_uid,
       jsonb_build_object('sub', v_uid::text, 'email', v_target_email, 'email_verified', true),
       'email', now(), now(), now()
     );
