@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260914-8';
+const APP_BUILD='b20260914-2056';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -39,7 +39,8 @@ let returningSaleId=null, returningSale=null, returningSaleItems=[];
 function q(id){return document.getElementById(id)}
 function esc(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
 function cfgText(v){return esc(v)}
-function initBranding(){document.title=APP_CONFIG.businessName+' - '+APP_CONFIG.tagline; if(q('brandTitle'))q('brandTitle').textContent=APP_CONFIG.businessName; if(q('brandTagline'))q('brandTagline').textContent=APP_CONFIG.tagline; if(q('loginTitle'))q('loginTitle').textContent='دخول '+APP_CONFIG.businessName; try{console.log('نسخة نظام بن عمر: '+APP_BUILD); const card=document.querySelector('#loginScreen .modal-card'); if(card&&!q('appBuildTag')){const t=document.createElement('div'); t.id='appBuildTag'; t.style.cssText='text-align:center;font-size:11px;color:#94a3b8;margin-top:10px'; t.textContent='نسخة التشغيل: '+APP_BUILD; card.appendChild(t);}}catch(e){}}
+function initBranding(){document.title=APP_CONFIG.businessName+' - '+APP_CONFIG.tagline;
+  if(q('settingsBuild')) q('settingsBuild').textContent=APP_BUILD; if(q('brandTitle'))q('brandTitle').textContent=APP_CONFIG.businessName; if(q('brandTagline'))q('brandTagline').textContent=APP_CONFIG.tagline; if(q('loginTitle'))q('loginTitle').textContent='دخول '+APP_CONFIG.businessName; try{console.log('نسخة نظام بن عمر: '+APP_BUILD); const card=document.querySelector('#loginScreen .modal-card'); if(card&&!q('appBuildTag')){const t=document.createElement('div'); t.id='appBuildTag'; t.style.cssText='text-align:center;font-size:11px;color:#94a3b8;margin-top:10px'; t.textContent='نسخة التشغيل: '+APP_BUILD; card.appendChild(t);}}catch(e){}}
 function money(n){return Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
 function normalizeDigits(v){return String(v??'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d))}
 function parseDecimal(v){
@@ -685,6 +686,37 @@ async function offlineQueueDelete(key){
   logAction('offline_sale_delete','pos_offline_queue',it.temp_id,`حذف فاتورة محلية رفضها الخادم (${it.error||''}) - ${money(d.total)} ${APP_CONFIG.currency}`);
   refreshAfterLocalUpdate(); updateOfflineQueueBadge(); await renderOfflineQueueModal();
   toast('تم حذف الفاتورة المحلية وإرجاع المخزون المحلي','success');
+}
+/* ═══ شريط «صدر تحديث — أعد التحميل» ═══
+   يظهر عندما تُفعِّل service worker نسخة أحدث من نسخة الصفحة العاملة.
+   لا إعادة تحميل تلقائية أبداً — إن وُجدت فاتورة غير محفوظة يُشترط تأكيد المستخدم. */
+let __updateBarShown=false;
+function showUpdateBar(build){
+  if(__updateBarShown) return; __updateBarShown=true;
+  const bar=document.createElement('div');
+  bar.id='swUpdateBar';
+  bar.style.cssText='position:fixed;bottom:0;inset-inline:0;z-index:9999;background:#0f2a5f;color:#fff;padding:10px 16px;display:flex;gap:12px;align-items:center;justify-content:center;font-weight:700;box-shadow:0 -6px 24px rgba(2,6,23,.35)';
+  bar.innerHTML='<span>🔄 صدر تحديث للنظام'+(build?(' — إصدار '+esc(String(build))):'')+'</span>';
+  const btn=document.createElement('button');
+  btn.textContent='أعد التحميل الآن';
+  btn.style.cssText='background:#fff;color:#0f2a5f;border:0;border-radius:8px;padding:8px 18px;font:inherit;font-weight:800;cursor:pointer';
+  btn.onclick=()=>{
+    if(typeof saleHasContent==='function' && saleHasContent() && !confirm('يوجد فاتورة بيع غير محفوظة — إعادة التحميل ستفقدها. متابعة؟')) return;
+    location.reload();
+  };
+  const later=document.createElement('button');
+  later.textContent='لاحقاً';
+  later.style.cssText='background:transparent;color:#c7d2fe;border:1px solid #c7d2fe;border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer';
+  later.onclick=()=>{ bar.remove(); __updateBarShown=false; };
+  bar.appendChild(btn); bar.appendChild(later);
+  document.body.appendChild(bar);
+  try{toast('صدر تحديث للنظام — اضغط «أعد التحميل» عندما تنتهي من الفاتورة الحالية','info');}catch(e){}
+}
+if('serviceWorker' in navigator && navigator.serviceWorker && typeof navigator.serviceWorker.addEventListener==='function'){
+  navigator.serviceWorker.addEventListener('message',ev=>{
+    const d=ev&&ev.data;
+    if(d&&d.type==='SW_UPDATED'&&d.build&&('b'+d.build)!==APP_BUILD) showUpdateBar(d.build);
+  });
 }
 function initOfflineQueue(){
   window.addEventListener('online',()=>{ setTimeout(()=>{ syncOfflineQueue().catch(console.warn); },400); });
