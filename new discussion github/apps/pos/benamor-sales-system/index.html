@@ -683,6 +683,29 @@
           </form>
         </div>
 
+        <div class="panel">
+          <h2>سجل المصاريف</h2>
+          <div class="tools" style="flex-wrap:wrap;gap:8px">
+            <label class="mini" style="margin:0">من</label><input id="expenseListFrom" type="date" style="min-width:130px" onchange="fetchExpensesList()">
+            <label class="mini" style="margin:0">إلى</label><input id="expenseListTo" type="date" style="min-width:130px" onchange="fetchExpensesList()">
+            <select id="expenseListCategory" onchange="fetchExpensesList()" style="min-width:140px"></select>
+            <select id="expenseListBranch" onchange="fetchExpensesList()" style="min-width:160px"></select>
+            <input id="expenseListSearch" type="search" placeholder="بحث في البيان…" oninput="debouncedExpenseSearch()" style="min-width:160px">
+            <button class="btn secondary" type="button" onclick="resetExpenseListFilters()">إعادة تعيين</button>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>التاريخ</th><th>البيان</th><th>التصنيف</th><th>الفرع</th><th>الخزينة / الحساب</th><th>المبلغ</th><th>مَن سجّل</th><th>إجراءات</th></tr></thead>
+              <tbody id="expensesBody"></tbody>
+              <tfoot id="expensesTotalFoot"><tr><td colspan="8" class="mini">—</td></tr></tfoot>
+            </table>
+          </div>
+          <div class="row" style="justify-content:space-between;margin-top:8px">
+            <span class="mini" id="expensesListInfo"></span>
+            <button class="btn secondary hidden" type="button" id="expensesMoreBtn" onclick="expensesLoadMore()">تحميل المزيد</button>
+          </div>
+        </div>
+
       </section>
 
         <section id="dailyCashClosing" class="section">
@@ -935,6 +958,21 @@
         <div class="row"><button class="btn" id="loginBtn" onclick="loginPOS(false)">دخول</button></div>
         <div id="loginHelp">اختر الفرع ثم اكتب المعرّف والكود للدخول.</div>
       </div>
+    </div>
+  </div>
+  <div class="modal" id="expenseEditModal">
+    <div class="modal-card" style="max-width:520px">
+      <div class="modal-head"><div><h2 style="margin:0">تعديل المصروف</h2><div class="mini">الحركة المالية تُحدَّث تلقائياً مع أي تغيير في المبلغ أو الحساب أو التاريخ</div></div><button class="btn secondary" type="button" onclick="q('expenseEditModal').classList.remove('show')">إغلاق</button></div>
+      <form id="expenseEditForm" class="form">
+        <div><label>التاريخ</label><input id="expenseEditDate" type="date" required></div>
+        <div><label>المبلغ</label><input id="expenseEditAmount" type="text" inputmode="decimal" required></div>
+        <div><label>التصنيف</label><select id="expenseEditCategory"></select></div>
+        <div><label>الفرع</label><select id="expenseEditBranch"></select></div>
+        <div><label>الخزينة / الحساب</label><select id="expenseEditAccount" required></select></div>
+        <div style="grid-column:1/-1"><label>البيان</label><input id="expenseEditTitle" required></div>
+        <div style="grid-column:1/-1"><label>ملاحظات</label><input id="expenseEditNotes" placeholder="اختياري"></div>
+        <button class="btn" type="submit">حفظ التعديل</button>
+      </form>
     </div>
   </div>
   <div class="modal" id="offlineQueueModal">

@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260914-6';
+const APP_BUILD='b20260914-7';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -739,7 +739,7 @@ async function loadAll(){
   finally{showLoading(false);window.__busy=false}
 }
 
-function renderAll(){renderDashboard();renderLocations();renderProductDatalist();renderProducts();renderSuppliers();renderCustomers();fillSupplierSelects();renderLedger();renderCustomerLedger();renderPayments();renderSales();renderProformas();renderPurchases();renderStock();renderTransfers();renderFinance();renderReports();renderRoles();renderStatusBar();renderSettingsExpenseCategories();renderProductOptionSettings();refreshAuditLog();renderComposites();renderStockCount();applyPermissions();setTimeout(setupTableSorting,0)}
+function renderAll(){renderDashboard();renderLocations();renderProductDatalist();renderProducts();renderSuppliers();renderCustomers();fillSupplierSelects();renderLedger();renderCustomerLedger();renderPayments();renderSales();renderProformas();renderPurchases();renderStock();renderTransfers();renderFinance();renderReports();renderRoles();renderStatusBar();renderSettingsExpenseCategories();renderProductOptionSettings();refreshAuditLog();renderComposites();renderStockCount();renderExpensesList();applyPermissions();setTimeout(setupTableSorting,0)}
 function renderDashboard(){
   q('branchesCount').textContent=locations.filter(x=>x.location_type==='branch').length;
   q('warehousesCount').textContent=locations.filter(x=>x.location_type==='warehouse').length;
@@ -2901,6 +2901,7 @@ document.querySelectorAll('nav button').forEach(btn=>btn.addEventListener('click
   if(btn.dataset.tab==='reports' && btn.dataset.reportDefault){setTimeout(()=>showReport(btn.dataset.reportDefault),50);}
   if(btn.dataset.tab==='dailyCashClosing'){setTimeout(()=>renderDailyCashReport(),50);}
   if(btn.dataset.tab==='stockCount'){setTimeout(()=>renderStockCount(),50);}
+  if(btn.dataset.tab==='expensesQuick'){setTimeout(()=>onExpensesTabOpen(),50);}
 }));
 window.addEventListener('beforeunload',e=>{ if(saleHasContent()){ e.preventDefault(); e.returnValue=''; } });
 document.addEventListener('keydown',e=>{
@@ -3234,7 +3235,157 @@ q('saleReturnForm').addEventListener('submit', async e=>{
 
 q('financeAccountForm')?.addEventListener('submit',async e=>{e.preventDefault();if(window.__busy)return;window.__busy=true;try{showLoading(true);const body={name:q('financeAccountName').value.trim(),account_type:q('financeAccountType').value,location_id:q('financeAccountLocation').value||null,bank_name:q('financeBankName').value.trim()||null,account_no:q('financeAccountNo').value.trim()||null,opening_balance:moneyVal(q('financeOpeningBalance').value),notes:q('financeAccountNotes').value.trim()||null}; if(editingFinanceAccountId){await api('pos_finance_accounts',{method:'PATCH',qs:`?id=eq.${editingFinanceAccountId}`,body:{...body,updated_at:new Date().toISOString()}}); toast('تم تعديل الحساب');}else{await api('pos_finance_accounts',{method:'POST',body}); toast('تم حفظ الحساب');} resetFinanceAccountForm(); await loadAll();}catch(err){console.error(err);toast('خطأ في حفظ الحساب: '+err.message+' - تأكد من تشغيل SQL طرق الدفع للحسابات')}finally{showLoading(false);window.__busy=false}});
 q('financeTransferForm')?.addEventListener('submit',async e=>{e.preventDefault();if(window.__busy)return;window.__busy=true;try{showLoading(true);const from=q('financeTransferFrom').value,to=q('financeTransferTo').value,amount=moneyVal(q('financeTransferAmount').value),date=q('financeTransferDate').value,notes=q('financeTransferNotes').value.trim()||'تحويل مالي';if(from===to){toast('لا يمكن التحويل لنفس الحساب','warn');window.__busy=false;return;}validateAccountingTransfer(amount);await addFinanceMovement(from,'out','transfer_out',amount,date,'pos_finance_movements',null,notes);await addFinanceMovement(to,'in','transfer_in',amount,date,'pos_finance_movements',null,notes);e.target.reset();setToday();toast('تم حفظ التحويل');await loadAll();}catch(err){console.error(err);toast('خطأ في التحويل: '+err.message)}finally{showLoading(false);window.__busy=false}});
-q('expenseForm')?.addEventListener('submit',async e=>{e.preventDefault();if(window.__busy)return;window.__busy=true;try{showLoading(true);const method=q('expensePaymentMethod')?.value||'cash'; if(q('expenseLocation')&&appUser?.branch_id) q('expenseLocation').value=appUser.branch_id; if(method==='cash') selectDefaultExpenseAccount(); const body={expense_date:q('expenseDate').value,location_id:q('expenseLocation')?.value||appUser?.branch_id||null,account_id:q('expenseAccount').value,category_id:q('expenseCategory').value||null,title:q('expenseTitle').value.trim(),amount:moneyVal(q('expenseAmount').value),notes:q('expenseNotes').value.trim()||null}; if(!body.location_id)throw new Error('لا يوجد فرع مرتبط بالمستخدم'); if(!body.account_id)throw new Error('اختر الخزينة / الحساب'); validateAccountingOutflow('expense',body.amount);const r=await api('pos_expenses',{method:'POST',body});await logAction('expense','pos_expenses',r[0].id,`${body.title} - ${money(body.amount)} ${APP_CONFIG.currency}`);await addFinanceMovement(body.account_id,'out','expense',body.amount,body.expense_date,'pos_expenses',r[0].id,body.title);e.target.reset(); if(q('expenseLocation')&&appUser?.branch_id) q('expenseLocation').value=appUser.branch_id; selectDefaultExpenseAccount(); setToday();toast('تم حفظ المصروف'); expenses.unshift(r[0]); localMovement(body.account_id,'out','expense',body.amount,body.expense_date,'pos_expenses',r[0].id,body.title); refreshAfterLocalUpdate();}catch(err){console.error(err);toast('خطأ في حفظ المصروف: '+err.message)}finally{showLoading(false);window.__busy=false}});
+q('expenseForm')?.addEventListener('submit',async e=>{e.preventDefault();if(window.__busy)return;window.__busy=true;try{showLoading(true);const method=q('expensePaymentMethod')?.value||'cash'; if(q('expenseLocation')&&appUser?.branch_id) q('expenseLocation').value=appUser.branch_id; if(method==='cash') selectDefaultExpenseAccount(); const body={expense_date:q('expenseDate').value,location_id:q('expenseLocation')?.value||appUser?.branch_id||null,account_id:q('expenseAccount').value,category_id:q('expenseCategory').value||null,title:q('expenseTitle').value.trim(),amount:moneyVal(q('expenseAmount').value),notes:q('expenseNotes').value.trim()||null,created_by:appUser?.identifier||''}; if(!body.location_id)throw new Error('لا يوجد فرع مرتبط بالمستخدم'); if(!body.account_id)throw new Error('اختر الخزينة / الحساب'); validateAccountingOutflow('expense',body.amount);const r=await api('pos_expenses',{method:'POST',body});await logAction('expense','pos_expenses',r[0].id,`${body.title} - ${money(body.amount)} ${APP_CONFIG.currency}`);await addFinanceMovement(body.account_id,'out','expense',body.amount,body.expense_date,'pos_expenses',r[0].id,body.title);e.target.reset(); if(q('expenseLocation')&&appUser?.branch_id) q('expenseLocation').value=appUser.branch_id; selectDefaultExpenseAccount(); setToday();toast('تم حفظ المصروف'); expenses.unshift(r[0]); if(expensesListInit && expenseMatchesListFilters(r[0])){ expensesListCache.unshift(r[0]); renderExpensesList(); } localMovement(body.account_id,'out','expense',body.amount,body.expense_date,'pos_expenses',r[0].id,body.title); refreshAfterLocalUpdate();}catch(err){console.error(err);toast('خطأ في حفظ المصروف: '+err.message)}finally{showLoading(false);window.__busy=false}});
+
+/* ═════════════ سجل المصاريف: قائمة + فلاتر + تعديل/حذف ذرّي عبر RPC ═════════════
+   القاعدة: من سجّل المصروف يعدّله في نفس يوم تسجيله فقط — والمدير يعدّل ويحذف الكل.
+   العبرة بـ created_at (وقت التسجيل) لا expense_date. الحذف لغير المدير ممنوع. */
+let expensesListCache=[], expensesListLimit=500, expensesListInit=false, expensesSearchTimer=null, editingExpenseId=null;
+function expenseTodayUTC(){ return new Date().toISOString().slice(0,10); } /* مطابق لـ current_date بتوقيت الخادم */
+function canEditExpenseRow(x){
+  if(currentRole?.role==='admin') return true;
+  if(!x.created_by || String(x.created_by)!==String(appUser?.identifier||'')) return false;
+  return String(x.created_at||'').slice(0,10)===expenseTodayUTC();
+}
+function canDeleteExpenseRow(){ return currentRole?.role==='admin'; }
+function debouncedExpenseSearch(){ clearTimeout(expensesSearchTimer); expensesSearchTimer=setTimeout(fetchExpensesList,250); }
+function initExpensesListTab(){
+  if(expensesListInit) return; expensesListInit=true;
+  const now=new Date();
+  if(q('expenseListFrom')) q('expenseListFrom').value=now.toISOString().slice(0,8)+'01'; /* الشهر الحالي */
+  if(q('expenseListTo')) q('expenseListTo').value=now.toISOString().slice(0,10);
+  if(q('expenseListBranch')){
+    q('expenseListBranch').innerHTML='<option value="">كل الفروع</option>'+locations.map(l=>`<option value="${l.id}">${esc(l.name)}</option>`).join('');
+    /* فلتر راحة فقط (لا قيد صلاحية): يبدأ على فرع المستخدم ويمكن تغييره */
+    if(appUser?.branch_id && locations.some(l=>l.id===appUser.branch_id)) q('expenseListBranch').value=appUser.branch_id;
+  }
+  fillExpenseCategoryFilter();
+}
+function fillExpenseCategoryFilter(){
+  const opts='<option value="">كل التصنيفات</option>'+(expenseCategories||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  ['expenseListCategory','expenseEditCategory'].forEach(id=>{ const el=q(id); if(el){ const v=el.value; el.innerHTML=opts; if(v) el.value=v; } });
+}
+function expenseMatchesListFilters(x){
+  const from=q('expenseListFrom')?.value, to=q('expenseListTo')?.value, cat=q('expenseListCategory')?.value, br=q('expenseListBranch')?.value, sr=q('expenseListSearch')?.value?.trim();
+  if(from && String(x.expense_date||'')<from) return false;
+  if(to && String(x.expense_date||'')>to) return false;
+  if(cat && x.category_id!==cat) return false;
+  if(br && x.location_id!==br) return false;
+  if(sr && !String(x.title||'').includes(sr)) return false;
+  return true;
+}
+function resetExpenseListFilters(){
+  const now=new Date();
+  if(q('expenseListFrom')) q('expenseListFrom').value=now.toISOString().slice(0,8)+'01';
+  if(q('expenseListTo')) q('expenseListTo').value=now.toISOString().slice(0,10);
+  if(q('expenseListCategory')) q('expenseListCategory').value='';
+  if(q('expenseListBranch')) q('expenseListBranch').value=(appUser?.branch_id&&locations.some(l=>l.id===appUser.branch_id))?appUser.branch_id:'';
+  if(q('expenseListSearch')) q('expenseListSearch').value='';
+  fetchExpensesList();
+}
+async function fetchExpensesList(){
+  initExpensesListTab();
+  const qs=['select=*&order=expense_date.desc,created_at.desc'];
+  const from=q('expenseListFrom')?.value, to=q('expenseListTo')?.value, cat=q('expenseListCategory')?.value, br=q('expenseListBranch')?.value, sr=q('expenseListSearch')?.value?.trim();
+  if(from) qs.push('expense_date=gte.'+from);
+  if(to) qs.push('expense_date=lte.'+to);
+  if(cat) qs.push('category_id=eq.'+cat);
+  if(br) qs.push('location_id=eq.'+br);
+  if(sr) qs.push('title=ilike.*'+encodeURIComponent(sr)+'*');
+  qs.push('limit='+expensesListLimit);
+  try{
+    expensesListCache=await api('pos_expenses',{qs:'?'+qs.join('&')})||[];
+    renderExpensesList();
+  }catch(err){ console.warn('فشل جلب قائمة المصاريف — تُعرض آخر قائمة متاحة',err); }
+}
+function onExpensesTabOpen(){ initExpensesListTab(); renderExpensesList(); fetchExpensesList(); }
+function expensesLoadMore(){ expensesListLimit+=500; fetchExpensesList(); }
+function renderExpensesList(){
+  const body=q('expensesBody'); if(!body) return;
+  /* خرائط مسبقة — لا بحث خطي داخل map (درس أداء منتقي المنتجات) */
+  const locMap=new Map(locations.map(l=>[l.id,l.name]));
+  const accMap=new Map(financeAccounts.map(a=>[a.id,a.name]));
+  const catMap=new Map((expenseCategories||[]).map(c=>[c.id,c.name]));
+  if(!expensesListCache.length){
+    body.innerHTML='<tr><td colspan="8">لا توجد مصاريف مطابقة للفلاتر.</td></tr>';
+    if(q('expensesTotalFoot')) q('expensesTotalFoot').innerHTML='<tr><td colspan="8" class="mini">—</td></tr>';
+    if(q('expensesListInfo')) q('expensesListInfo').textContent='';
+    q('expensesMoreBtn')?.classList.add('hidden');
+    return;
+  }
+  const total=expensesListCache.reduce((a,x)=>a+Number(x.amount||0),0);
+  body.innerHTML=expensesListCache.map(x=>{
+    const safe=String(x.id).replace(/'/g,"\\'");
+    const canEdit=canEditExpenseRow(x), canDel=canDeleteExpenseRow(); /* الأزرار غير المتاحة تُخفى */
+    return `<tr><td>${esc(x.expense_date)}</td><td>${esc(x.title)}${x.notes?`<div class="mini">${esc(x.notes)}</div>`:''}</td><td>${esc(catMap.get(x.category_id)||'—')}</td><td>${esc(locMap.get(x.location_id)||'—')}</td><td>${esc(accMap.get(x.account_id)||'—')}</td><td><b>${money(x.amount)}</b></td><td>${esc(x.created_by||'—')}</td><td style="white-space:nowrap">${canEdit?`<button class="btn secondary" type="button" onclick="editExpense('${safe}')">تعديل</button>`:''}${canDel?` <button class="btn danger" type="button" onclick="deleteExpense('${safe}')">حذف</button>`:''}</td></tr>`;
+  }).join('');
+  if(q('expensesTotalFoot')) q('expensesTotalFoot').innerHTML=`<tr><td colspan="5"><b>إجمالي المعروض</b></td><td><b>${money(total)} ${APP_CONFIG.currency}</b></td><td colspan="2" class="mini">${expensesListCache.length} مصروفاً</td></tr>`;
+  if(q('expensesListInfo')) q('expensesListInfo').textContent=`النتائج: ${expensesListCache.length}${expensesListCache.length>=expensesListLimit?'+ (يوجد المزيد)':''}`;
+  q('expensesMoreBtn')?.classList.toggle('hidden', expensesListCache.length<expensesListLimit);
+}
+function editExpense(id){
+  const x=expensesListCache.find(e=>e.id===id)||expenses.find(e=>e.id===id); if(!x){toast('لم يتم العثور على المصروف','warn');return;}
+  if(!canEditExpenseRow(x)){toast('لا يمكنك تعديل هذا المصروف — المدير، أو منشئه في نفس يوم تسجيله فقط','warn');return;}
+  editingExpenseId=id;
+  if(q('expenseEditBranch')) q('expenseEditBranch').innerHTML='<option value="">بلا فرع</option>'+locations.map(l=>`<option value="${l.id}">${esc(l.name)}</option>`).join('');
+  fillExpenseCategoryFilter();
+  if(q('expenseEditAccount')) q('expenseEditAccount').innerHTML=financeAccounts.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('');
+  q('expenseEditDate').value=x.expense_date; q('expenseEditAmount').value=Number(x.amount||0);
+  q('expenseEditCategory').value=x.category_id||''; q('expenseEditBranch').value=x.location_id||'';
+  q('expenseEditAccount').value=x.account_id||''; q('expenseEditTitle').value=x.title||''; q('expenseEditNotes').value=x.notes||'';
+  q('expenseEditModal').classList.add('show');
+}
+q('expenseEditForm')?.addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(!editingExpenseId||window.__busy) return; window.__busy=true;
+  try{
+    showLoading(true);
+    const patch={expense_date:q('expenseEditDate').value,amount:moneyVal(q('expenseEditAmount').value),category_id:q('expenseEditCategory').value||null,location_id:q('expenseEditBranch').value||null,account_id:q('expenseEditAccount').value,title:q('expenseEditTitle').value.trim(),notes:q('expenseEditNotes').value.trim()||null};
+    validateAccountingOutflow('expense',patch.amount);
+    const updated=await rpc('pos_update_expense',{p_expense_id:editingExpenseId,p_expense:patch});
+    logAction('expense_edit','pos_expenses',editingExpenseId,`تعديل مصروف: ${updated.title} - ${money(updated.amount)} ${APP_CONFIG.currency} - بواسطة ${appUser?.identifier||''}`);
+    mirrorExpenseUpdatedLocally(updated);
+    q('expenseEditModal').classList.remove('show'); editingExpenseId=null;
+    toast('تم تعديل المصروف وتحديث الحركة المالية','success');
+  }catch(err){ console.error(err); toast('خطأ في تعديل المصروف: '+friendlyError(err),'error'); }
+  finally{ showLoading(false); window.__busy=false; }
+});
+async function deleteExpense(id){
+  if(currentRole?.role!=='admin'){toast('الحذف للمدير فقط','warn');return;}
+  const x=expensesListCache.find(e=>e.id===id)||expenses.find(e=>e.id===id); if(!x){toast('لم يتم العثور على المصروف','warn');return;}
+  if(!confirm(`حذف المصروف "${x.title}" بمبلغ ${money(x.amount)} ${APP_CONFIG.currency}؟\nسيُحذف مع حركته المالية في نفس المعاملة فيعود المبلغ لرصيد الخزينة.`))return;
+  if(window.__busy) return; window.__busy=true;
+  try{
+    showLoading(true);
+    await rpc('pos_delete_expense',{p_expense_id:id});
+    logAction('expense_delete','pos_expenses',id,`حذف مصروف: ${x.title} - ${money(x.amount)} ${APP_CONFIG.currency} - بواسطة ${appUser?.identifier||''}`);
+    mirrorExpenseDeletedLocally(x);
+    toast('تم حذف المصروف وإرجاع المبلغ لرصيد الخزينة','success');
+  }catch(err){ console.error(err); toast('خطأ في حذف المصروف: '+friendlyError(err),'error'); }
+  finally{ showLoading(false); window.__busy=false; }
+}
+/* مرايا محلية — صفر loadAll بعد أي عملية */
+function mirrorExpenseMovementSwap(oldRow,newRow){
+  /* أثر الحركة القديمة يُلغى (الخروج يعود للرصيد) والحركة الجديدة تُطبَّق */
+  const oldAcc=financeAccounts.find(a=>a.id===oldRow.account_id);
+  if(oldAcc) oldAcc.balance=Number(oldAcc.balance||0)+Number(oldRow.amount||0);
+  for(let i=financeMovements.length-1;i>=0;i--) if(financeMovements[i].reference_table==='pos_expenses'&&financeMovements[i].reference_id===oldRow.id) financeMovements.splice(i,1);
+  localMovement(newRow.account_id,'out','expense',newRow.amount,newRow.expense_date,'pos_expenses',newRow.id,newRow.title);
+}
+function mirrorExpenseUpdatedLocally(updated){
+  const old=expensesListCache.find(e=>e.id===updated.id)||expenses.find(e=>e.id===updated.id);
+  if(old) mirrorExpenseMovementSwap(old,updated);
+  [expenses,expensesListCache].forEach(arr=>{ const i=arr.findIndex(e=>e.id===updated.id); if(i>-1) arr[i]={...arr[i],...updated}; });
+  renderExpensesList(); refreshAfterLocalUpdate();
+}
+function mirrorExpenseDeletedLocally(x){
+  const acc=financeAccounts.find(a=>a.id===x.account_id);
+  if(acc) acc.balance=Number(acc.balance||0)+Number(x.amount||0);
+  for(let i=financeMovements.length-1;i>=0;i--) if(financeMovements[i].reference_table==='pos_expenses'&&financeMovements[i].reference_id===x.id) financeMovements.splice(i,1);
+  expensesListCache=expensesListCache.filter(e=>e.id!==x.id);
+  const j=expenses.findIndex(e=>e.id===x.id); if(j>-1) expenses.splice(j,1);
+  renderExpensesList(); refreshAfterLocalUpdate();
+}
 q('employeeForm')?.addEventListener('submit',async e=>{e.preventDefault();if(window.__busy)return;window.__busy=true;try{showLoading(true);await api('pos_employees',{method:'POST',body:{name:q('employeeName').value.trim(),phone:q('employeePhone').value.trim()||null,position:q('employeePosition').value.trim()||null,monthly_salary:moneyVal(q('employeeMonthlySalary').value)}});e.target.reset();toast('تم حفظ الموظف');await loadAll();}catch(err){console.error(err);toast('خطأ في حفظ الموظف: '+err.message)}finally{showLoading(false);window.__busy=false}});
 q('salaryPaymentForm')?.addEventListener('submit',async e=>{e.preventDefault();if(window.__busy)return;window.__busy=true;try{showLoading(true);const body={employee_id:q('salaryEmployee').value,account_id:q('salaryAccount').value,payment_date:q('salaryPaymentDate').value,period:q('salaryPeriod').value.trim()||null,amount:moneyVal(q('salaryAmount').value),notes:q('salaryNotes').value.trim()||null};validateAccountingOutflow('salary',body.amount);const r=await api('pos_salary_payments',{method:'POST',body});await addFinanceMovement(body.account_id,'out','salary',body.amount,body.payment_date,'pos_salary_payments',r[0].id,'مرتب موظف');e.target.reset();setToday();toast('تم دفع المرتب');await loadAll();}catch(err){console.error(err);toast('خطأ في دفع المرتب: '+err.message)}finally{showLoading(false);window.__busy=false}});
 

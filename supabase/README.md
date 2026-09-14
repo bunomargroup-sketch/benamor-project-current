@@ -124,5 +124,5 @@ The chain copies fix them, each marked with a `⚙️ إصلاح سلسلة` com
 * Grants (GRANT/REVOKE) are intentionally excluded from schema comparison:
   they legitimately differ between environments.
 * The chain ends at the latest known state including the offline-queue guard
-  (`0045`). Any future change to the live database must land as a new numbered
+  (`0045`) and the expenses audit-list migration (`0046`). Any future change to the live database must land as a new numbered
   migration in this folder — that is the whole point of the chain.
