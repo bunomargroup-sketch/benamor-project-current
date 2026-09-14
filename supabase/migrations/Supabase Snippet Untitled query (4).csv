@@ -1,0 +1,1618 @@
+kind,name,definition
+function,admin_delete_sale(p_sale_id uuid),"CREATE OR REPLACE FUNCTION public.admin_delete_sale(p_sale_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_sale public.pos_sales%rowtype;
+  v_item public.pos_sale_items%rowtype;
+  v_comp record;
+  v_inv text;
+begin
+  if public.pos_current_role() <> 'admin' then
+    raise exception 'ONLY_ADMIN_CAN_DELETE_SALES';
+  end if;
+
+  select * into v_sale from public.pos_sales where id = p_sale_id for update;
+  if not found then
+    raise exception 'SALE_NOT_FOUND';
+  end if;
+  v_inv := coalesce(v_sale.invoice_no, '');
+
+  -- لا حذف لفواتورة عليها مرتجعات
+  if exists (select 1 from public.pos_sale_returns where sale_id = p_sale_id) then
+    raise exception 'SALE_HAS_RETURNS_DELETE_THEM_FIRST';
+  end if;
+
+  -- إرجاع المخزون: مركّب → مكوّناته / عادي → نفسه (اتجاه الكمية محفوظ:
+  -- السالب داخل الفاتورة كان أضاف مخزوناً فيُخصم عند الحذف)
+  for v_item in select * from public.pos_sale_items where sale_id = p_sale_id loop
+    if exists (select 1 from public.pos_composite_items where composite_code = v_item.product_code) then
+      for v_comp in select component_code, qty as comp_qty
+                    from public.pos_composite_items where composite_code = v_item.product_code loop
+        perform public.pos_adjust_stock_checked(
+          v_sale.location_id, v_comp.component_code, v_comp.component_code,
+          v_item.qty * coalesce(v_comp.comp_qty,1),
+          'adjustment', 'pos_sales', p_sale_id,
+          'إرجاع مكوّن منتج مركّب — حذف فاتورة ' || v_inv
+        );
+      end loop;
+    else
+      perform public.pos_adjust_stock_checked(
+        v_sale.location_id, v_item.product_code, v_item.product_name,
+        v_item.qty,
+        'adjustment', 'pos_sales', p_sale_id,
+        'إرجاع مخزون — حذف فاتورة ' || v_inv
+      );
+    end if;
+  end loop;
+
+  -- إلغاء كل الآثار ثم الحذف
+  delete from public.pos_stock_movements  where reference_table='pos_sales' and reference_id=p_sale_id;
+  delete from public.pos_customer_ledger where reference_table='pos_sales' and reference_id=p_sale_id;
+  delete from public.pos_finance_movements where reference_table='pos_sales' and reference_id=p_sale_id;
+  delete from public.pos_sale_payments   where sale_id=p_sale_id;
+  delete from public.pos_sale_items     where sale_id=p_sale_id;
+  delete from public.pos_sales          where id=p_sale_id;
+
+  return jsonb_build_object('deleted', true, 'invoice_no', v_inv);
+end;
+$function$
+"
+function,"create_app_user(p_identifier text, p_code text)","CREATE OR REPLACE FUNCTION public.create_app_user(p_identifier text, p_code text)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'auth', 'public', 'extensions'
+AS $function$
+declare
+  v_identifier text := lower(trim(coalesce(p_identifier,'')));
+  v_email text := v_identifier || '@bag.com';
+  v_uid uuid;
+begin
+  if public.pos_current_role() <> 'admin' then
+    raise exception 'ONLY_ADMIN_CAN_CREATE_USERS';
+  end if;
+
+  if v_identifier !~ '^[a-z0-9._-]{2,40}$' then
+    raise exception 'INVALID_IDENTIFIER (حروف إنجليزية وأرقام فقط، 2-40)';
+  end if;
+
+  if length(coalesce(p_code,'')) < 6 then
+    raise exception 'CODE_TOO_SHORT (6 أحرف على الأقل)';
+  end if;
+
+  if exists (select 1 from auth.users where lower(email) = v_email) then
+    raise exception 'USER_ALREADY_EXISTS: %', v_email;
+  end if;
+
+  v_uid := gen_random_uuid();
+
+  insert into auth.users (
+    id, instance_id, aud, role, email, encrypted_password,
+    email_confirmed_at, created_at, updated_at,
+    raw_app_meta_data, raw_user_meta_data,
+        confirmation_token, email_change, email_change_token_new, recovery_token
+  ) values (
+    v_uid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', v_email,
+    crypt(p_code, gen_salt('bf')),
+    now(), now(), now(),
+    '{""provider"":""email"",""providers"":[""email""]}'::jsonb, '{}'::jsonb,
+        '', '', '', ''
+  );
+
+  insert into auth.identities (
+    id, provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at
+  ) values (
+    gen_random_uuid(), v_uid::text, v_uid,
+    jsonb_build_object('sub', v_uid::text, 'email', v_email, 'email_verified', true),
+    'email', now(), now(), now()
+  );
+
+  return v_uid;
+end;
+$function$
+"
+function,"login_app_user(p_identifier text, p_code text)","CREATE OR REPLACE FUNCTION public.login_app_user(p_identifier text, p_code text)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+declare
+  found_user_id uuid;
+begin
+  select id
+  into found_user_id
+  from app_users
+  where identifier = lower(trim(p_identifier))
+  and code_hash = crypt(trim(p_code), code_hash);
+
+  if found_user_id is null then
+    raise exception 'Wrong identifier or code';
+  end if;
+
+  return found_user_id;
+end;
+$function$
+"
+function,mark_pricechecker_cart_converted(p_cart_id uuid),"CREATE OR REPLACE FUNCTION public.mark_pricechecker_cart_converted(p_cart_id uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'auth'
+AS $function$
+declare
+  v_role text := public.pos_current_role();
+  v_owner_role text;
+begin
+  select r.role into v_owner_role
+  from public.carts c
+  left join auth.users u on u.id=c.user_id
+  left join public.pos_user_roles r on lower(r.identifier)=lower(split_part(u.email,'@',1))
+  where c.id=p_cart_id;
+
+  if not (
+    v_role='admin'
+    or v_role='sales_purchase'
+    or (v_role='seller_11' and v_owner_role='seller_11')
+    or (v_role='seller_sarraj' and v_owner_role='seller_sarraj')
+  ) then
+    raise exception 'CART_NOT_ALLOWED_FOR_ROLE';
+  end if;
+
+  update public.carts
+  set status='converted', updated_at=now()
+  where id=p_cart_id;
+end;
+$function$
+"
+function,next_pos_invoice_number(),"CREATE OR REPLACE FUNCTION public.next_pos_invoice_number()
+ RETURNS text
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+declare
+  n bigint;
+  start_value bigint;
+begin
+  -- Start at the highest existing INV numeric suffix, or 1000 if none exists.
+  select greatest(
+    1000,
+    coalesce(max((regexp_match(invoice_no, '^INV-([0-9]+)$'))[1]::bigint), 1000)
+  ) into start_value
+  from public.pos_sales
+  where invoice_no ~ '^INV-[0-9]+$';
+
+  insert into public.pos_number_counters(key,last_value,updated_at)
+  values ('sale_invoice', start_value + 1, now())
+  on conflict (key) do update
+    set last_value = greatest(public.pos_number_counters.last_value + 1, start_value + 1),
+        updated_at = now()
+  returning last_value into n;
+
+  return 'INV-' || n::text;
+end;
+$function$
+"
+function,"pos_adjust_stock_checked(p_location_id uuid, p_product_code text, p_product_name text, p_qty_change numeric, p_movement_type text, p_reference_table text, p_reference_id uuid, p_notes text)","CREATE OR REPLACE FUNCTION public.pos_adjust_stock_checked(p_location_id uuid, p_product_code text, p_product_name text, p_qty_change numeric, p_movement_type text, p_reference_table text, p_reference_id uuid, p_notes text DEFAULT NULL::text)
+ RETURNS numeric
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_id uuid;
+  v_qty numeric;
+  v_new_qty numeric;
+begin
+  if p_location_id is null then raise exception 'LOCATION_REQUIRED'; end if;
+  if p_product_code is null or trim(p_product_code) = '' then raise exception 'PRODUCT_CODE_REQUIRED'; end if;
+  if p_qty_change is null or p_qty_change = 0 then raise exception 'QTY_CHANGE_REQUIRED'; end if;
+
+  select id, qty into v_id, v_qty
+  from public.pos_stock
+  where location_id = p_location_id and lower(product_code) = lower(p_product_code)
+  for update;
+
+  -- التغيير: لا يوجد منع للكمية السالبة بعد الآن
+  -- (سابقاً: raise exception 'INSUFFICIENT_STOCK ...' في الحالتين التاليتين)
+  if v_id is null then
+    insert into public.pos_stock(location_id, product_code, product_name, qty, updated_at)
+    values (p_location_id, p_product_code, p_product_name, p_qty_change, now())
+    returning qty into v_new_qty;
+  else
+    v_new_qty := coalesce(v_qty,0) + p_qty_change;
+    update public.pos_stock
+      set qty = v_new_qty,
+          product_name = coalesce(p_product_name, product_name),
+          updated_at = now()
+    where id = v_id;
+  end if;
+
+  -- تسجيل الحركة يبقى إلزامياً (سجل التدقيق / حركات المخزون)
+  insert into public.pos_stock_movements(location_id, product_code, product_name, movement_type, qty_change, reference_table, reference_id, notes)
+  values (p_location_id, p_product_code, p_product_name, p_movement_type, p_qty_change, p_reference_table, p_reference_id, p_notes);
+
+  return v_new_qty;
+end;
+$function$
+"
+function,pos_assert_location_allowed(p_location_id uuid),"CREATE OR REPLACE FUNCTION public.pos_assert_location_allowed(p_location_id uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_role text := public.pos_current_role();
+  v_name text;
+  v_is_sales boolean;
+begin
+  if p_location_id is null then raise exception 'LOCATION_REQUIRED'; end if;
+
+  if v_role in ('admin','warehouse','accountant') then
+    return;
+  end if;
+
+  select name, coalesce(is_sales_location,false)
+    into v_name, v_is_sales
+  from public.pos_locations
+  where id=p_location_id;
+
+  if v_role='sales_purchase' and v_is_sales then
+    return;
+  end if;
+
+  if v_role='seller_11' and v_name='فرع 11 يونيو' then return; end if;
+  if v_role='seller_sarraj' and v_name='فرع السراج' then return; end if;
+
+  raise exception 'LOCATION_NOT_ALLOWED_FOR_ROLE: %', v_role;
+end;
+$function$
+"
+function,pos_assert_role(p_allowed text[]),"CREATE OR REPLACE FUNCTION public.pos_assert_role(p_allowed text[])
+ RETURNS text
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_role text := public.pos_current_role();
+begin
+  if not (v_role = any(p_allowed)) then
+    raise exception 'ROLE_NOT_ALLOWED: %', v_role;
+  end if;
+  return v_role;
+end;
+$function$
+"
+function,"pos_assert_transfer_ends_allowed(p_from uuid, p_to uuid)","CREATE OR REPLACE FUNCTION public.pos_assert_transfer_ends_allowed(p_from uuid, p_to uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_role text := public.pos_current_role();
+  v_from_name text;
+  v_to_name text;
+begin
+  if p_from is null or p_to is null then raise exception 'LOCATION_REQUIRED'; end if;
+  if v_role in ('admin','warehouse','sales_purchase') then return; end if;
+  select name into v_from_name from public.pos_locations where id = p_from;
+  select name into v_to_name from public.pos_locations where id = p_to;
+  if v_role='seller_11' and (v_from_name='فرع 11 يونيو' or v_to_name='فرع 11 يونيو') then return; end if;
+  if v_role='seller_sarraj' and (v_from_name='فرع السراج' or v_to_name='فرع السراج') then return; end if;
+  raise exception 'TRANSFER_LOCATION_NOT_ALLOWED_FOR_ROLE: % (أحد طرفي التحويل يجب أن يكون فرعك)', v_role;
+end;
+$function$
+"
+function,pos_current_branch_id(),"CREATE OR REPLACE FUNCTION public.pos_current_branch_id()
+ RETURNS uuid
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_role text := public.pos_policy_role();
+  v_id uuid;
+begin
+  if v_role = 'seller_11' then
+    select id into v_id from public.pos_locations where name = 'فرع 11 يونيو' limit 1;
+  elsif v_role = 'seller_sarraj' then
+    select id into v_id from public.pos_locations where name = 'فرع السراج' limit 1;
+  end if;
+  return v_id;
+end;
+$function$
+"
+function,pos_current_identifier(),"CREATE OR REPLACE FUNCTION public.pos_current_identifier()
+ RETURNS text
+ LANGUAGE sql
+ STABLE
+AS $function$
+  select lower(split_part(coalesce(auth.jwt()->>'email',''),'@',1));
+$function$
+"
+function,pos_current_role(),"CREATE OR REPLACE FUNCTION public.pos_current_role()
+ RETURNS text
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_identifier text := public.pos_current_identifier();
+  v_role text;
+begin
+  if v_identifier is null or v_identifier = '' then
+    raise exception 'AUTH_REQUIRED';
+  end if;
+  select role into v_role
+  from public.pos_user_roles
+  where lower(identifier) = v_identifier and coalesce(active,true) = true
+  limit 1;
+  if v_role is null then
+    raise exception 'ROLE_NOT_ASSIGNED: %', v_identifier;
+  end if;
+  return v_role;
+end;
+$function$
+"
+function,pos_delete_expense(p_expense_id uuid),"CREATE OR REPLACE FUNCTION public.pos_delete_expense(p_expense_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_exp public.pos_expenses%rowtype;
+begin
+  if public.pos_current_role() <> 'admin' then
+    raise exception 'EXPENSE_DELETE_ADMIN_ONLY';
+  end if;
+
+  select * into v_exp from public.pos_expenses
+  where id = p_expense_id for update;
+  if not found then
+    raise exception 'EXPENSE_NOT_FOUND';
+  end if;
+
+  -- الحركة المالية المرتبطة تُحذف في نفس المعاملة — لا يتيمة تخصم للأبد
+  delete from public.pos_finance_movements
+  where reference_table = 'pos_expenses' and reference_id = p_expense_id;
+
+  delete from public.pos_expenses where id = p_expense_id;
+
+  return jsonb_build_object('id', p_expense_id, 'deleted', true,
+                            'amount', v_exp.amount, 'account_id', v_exp.account_id);
+end;
+$function$
+"
+function,pos_expenses_set_creator(),"CREATE OR REPLACE FUNCTION public.pos_expenses_set_creator()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if new.created_by is null or trim(new.created_by) = '' then
+    new.created_by := nullif(public.pos_current_identifier(), '');
+  end if;
+  return new;
+end;
+$function$
+"
+function,pos_generate_customer_no(),"CREATE OR REPLACE FUNCTION public.pos_generate_customer_no()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+begin
+  if new.customer_no is null or trim(new.customer_no) = '' then
+    new.customer_no := 'C' || lpad(nextval('pos_customer_no_seq')::text, 5, '0');
+  end if;
+  return new;
+end;
+$function$
+"
+function,pos_get_branch_pricechecker_carts(p_dummy jsonb),"CREATE OR REPLACE FUNCTION public.pos_get_branch_pricechecker_carts(p_dummy jsonb DEFAULT '{}'::jsonb)
+ RETURNS TABLE(id uuid, customer_name text, customer_phone text, notes text, discount_percent numeric, subtotal numeric, total numeric, status text, updated_at timestamp with time zone, owner_identifier text, owner_role text, branch_name text, items jsonb)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'auth'
+AS $function$
+declare
+  v_role text := public.pos_current_role();
+begin
+  return query
+  with cart_rows as (
+    select
+      c.*,
+      lower(split_part(u.email,'@',1)) as owner_identifier,
+      r.role as owner_role
+    from public.carts c
+    left join auth.users u on u.id = c.user_id
+    left join public.pos_user_roles r on lower(r.identifier)=lower(split_part(u.email,'@',1))
+    where coalesce(c.status,'open')='open'
+      and (
+        v_role='admin'
+        or v_role='sales_purchase'
+        or (v_role='seller_11' and (c.branch_name='فرع 11 يونيو' or (c.branch_name is null and r.role='seller_11')))
+        or (v_role='seller_sarraj' and (c.branch_name='فرع السراج' or (c.branch_name is null and r.role='seller_sarraj')))
+      )
+  )
+  select
+    c.id,
+    c.customer_name,
+    c.customer_phone,
+    c.notes,
+    c.discount_percent,
+    c.subtotal,
+    c.total,
+    c.status,
+    c.updated_at,
+    c.owner_identifier,
+    c.owner_role,
+    c.branch_name,
+    coalesce(jsonb_agg(to_jsonb(i) order by i.created_at) filter (where i.id is not null),'[]'::jsonb) as items
+  from cart_rows c
+  left join public.cart_items i on i.cart_id=c.id
+  group by c.id,c.customer_name,c.customer_phone,c.notes,c.discount_percent,c.subtotal,c.total,c.status,c.updated_at,c.owner_identifier,c.owner_role,c.branch_name
+  order by c.updated_at desc nulls last
+  limit 200;
+end;
+$function$
+"
+function,pos_policy_role(),"CREATE OR REPLACE FUNCTION public.pos_policy_role()
+ RETURNS text
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_identifier text := public.pos_current_identifier();
+  v_role text;
+begin
+  if v_identifier is null or v_identifier = '' then return null; end if;
+  select role into v_role
+  from public.pos_user_roles
+  where lower(identifier) = v_identifier and coalesce(active,true) = true
+  limit 1;
+  return v_role;
+end;
+$function$
+"
+function,pos_products_seller_guard(),"CREATE OR REPLACE FUNCTION public.pos_products_seller_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_role text := public.pos_policy_role();
+begin
+  if v_role in ('seller_11','seller_sarraj') then
+    if (to_jsonb(new) - 'name' - 'retail_price' - 'wholesale_price' - 'updated_at')
+       is distinct from
+       (to_jsonb(old) - 'name' - 'retail_price' - 'wholesale_price' - 'updated_at')
+    then
+      raise exception 'SELLER_PRODUCT_EDIT_LIMITED — البائع يعدّل الاسم والأسعار فقط';
+    end if;
+  end if;
+  return new;
+end;
+$function$
+"
+function,"pos_update_expense(p_expense_id uuid, p_expense jsonb)","CREATE OR REPLACE FUNCTION public.pos_update_expense(p_expense_id uuid, p_expense jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_exp public.pos_expenses%rowtype;
+  v_role text := public.pos_current_role();
+  v_date date;
+  v_location uuid;
+  v_account uuid;
+  v_category uuid;
+  v_title text;
+  v_amount numeric;
+  v_notes text;
+begin
+  select * into v_exp from public.pos_expenses
+  where id = p_expense_id for update;
+  if not found then
+    raise exception 'EXPENSE_NOT_FOUND';
+  end if;
+
+  -- الصلاحية: المدير دائماً، أو من سجّله هو وفي نفس يوم التسجيل
+  -- (العبرة بوقت التسجيل created_at لا بتاريخ المصروف expense_date)
+  if not (
+    v_role = 'admin'
+    or (
+      coalesce(v_exp.created_by,'') <> ''
+      and v_exp.created_by = public.pos_current_identifier()
+      and v_exp.created_at::date = current_date
+    )
+  ) then
+    raise exception 'EXPENSE_EDIT_NOT_ALLOWED — التعديل للمدير، أو لمنشئ المصروف في نفس يوم تسجيله فقط';
+  end if;
+
+  v_date     := coalesce(nullif(p_expense->>'expense_date','')::date, v_exp.expense_date);
+  v_location := coalesce(nullif(p_expense->>'location_id','')::uuid, v_exp.location_id);
+  v_account  := coalesce(nullif(p_expense->>'account_id','')::uuid, v_exp.account_id);
+  v_category := nullif(p_expense->>'category_id','')::uuid; -- '' ⇒ بلا تصنيف
+  if v_category is null and p_expense ? 'category_id' and p_expense->>'category_id' is null then
+    v_category := v_exp.category_id;
+  end if;
+  v_title    := nullif(p_expense->>'title','');
+  v_amount   := coalesce(nullif(p_expense->>'amount','')::numeric, v_exp.amount);
+  v_notes    := nullif(p_expense->>'notes','');
+
+  if v_title is null then raise exception 'EXPENSE_TITLE_REQUIRED'; end if;
+  if v_amount is null or v_amount <= 0 then raise exception 'EXPENSE_AMOUNT_MUST_BE_POSITIVE'; end if;
+  if not exists (select 1 from public.pos_finance_accounts where id = v_account) then
+    raise exception 'EXPENSE_ACCOUNT_NOT_FOUND';
+  end if;
+
+  update public.pos_expenses set
+    expense_date = v_date,
+    location_id  = v_location,
+    account_id   = v_account,
+    category_id  = v_category,
+    title        = v_title,
+    amount       = v_amount,
+    notes        = v_notes,
+    updated_at   = now()
+  where id = p_expense_id
+  returning * into v_exp;
+
+  -- مزامنة الحركة المالية: تُحذف المرتبطة القديمة وتُدرج المطابقة للقيم الجديدة
+  -- (مبلغ/حساب/تاريخ/بيان) — في نفس المعاملة
+  delete from public.pos_finance_movements
+  where reference_table = 'pos_expenses' and reference_id = p_expense_id;
+
+  insert into public.pos_finance_movements(
+    account_id, direction, movement_type, amount, movement_date,
+    reference_table, reference_id, notes
+  ) values (
+    v_account, 'out', 'expense', v_amount, v_date,
+    'pos_expenses', p_expense_id,
+    v_title || coalesce(' | عدّل: ' || public.pos_current_identifier(), '')
+  );
+
+  return to_jsonb(v_exp);
+end;
+$function$
+"
+function,"post_purchase_transaction(p_purchase jsonb, p_items jsonb, p_payment jsonb, p_idempotency_key text, p_user_identifier text)","CREATE OR REPLACE FUNCTION public.post_purchase_transaction(p_purchase jsonb, p_items jsonb, p_payment jsonb DEFAULT '{}'::jsonb, p_idempotency_key text DEFAULT NULL::text, p_user_identifier text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_existing public.pos_purchases%rowtype;
+  v_purchase public.pos_purchases%rowtype;
+  v_item jsonb;
+  v_supplier uuid;
+  v_location uuid;
+  v_purchase_date date;
+  v_subtotal numeric := 0;
+  v_discount numeric := 0;
+  v_total numeric := 0;
+  v_paid numeric := 0;
+  v_payment_method text := 'cash';
+  v_payment_account uuid;
+  v_line_total numeric;
+  v_qty numeric;
+  v_unit_cost numeric;
+  v_has_items boolean;
+begin
+  if p_idempotency_key is not null and trim(p_idempotency_key) <> '' then
+    select * into v_existing from public.pos_purchases where idempotency_key = p_idempotency_key limit 1;
+    if found then
+      return to_jsonb(v_existing) || jsonb_build_object('idempotent_replay', true);
+    end if;
+  end if;
+
+  v_has_items := jsonb_typeof(p_items) = 'array' and jsonb_array_length(p_items) > 0;
+  if not v_has_items then raise exception 'PURCHASE_HAS_NO_ITEMS'; end if;
+
+  v_supplier := nullif(p_purchase->>'supplier_id','')::uuid;
+  v_location := nullif(p_purchase->>'location_id','')::uuid;
+  if v_supplier is null then raise exception 'SUPPLIER_REQUIRED'; end if;
+  if v_location is null then raise exception 'LOCATION_REQUIRED'; end if;
+  perform public.pos_assert_role(array['admin','warehouse','sales_purchase']);
+  perform public.pos_assert_location_allowed(v_location);
+
+  v_purchase_date := coalesce(nullif(p_purchase->>'purchase_date','')::date, current_date);
+  v_discount := coalesce(nullif(p_purchase->>'discount','')::numeric, 0);
+  if v_discount < 0 then raise exception 'NEGATIVE_DISCOUNT_NOT_ALLOWED'; end if;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_qty := coalesce(nullif(v_item->>'qty','')::numeric, 0);
+    v_unit_cost := coalesce(nullif(v_item->>'unit_cost','')::numeric, 0);
+    if v_qty <= 0 then raise exception 'PURCHASE_QTY_MUST_BE_POSITIVE'; end if;
+    if v_unit_cost < 0 then raise exception 'NEGATIVE_UNIT_COST_NOT_ALLOWED'; end if;
+    v_line_total := coalesce(nullif(v_item->>'line_total','')::numeric, v_qty * v_unit_cost);
+    v_subtotal := v_subtotal + v_line_total;
+  end loop;
+
+  if v_discount > v_subtotal then raise exception 'DISCOUNT_EXCEEDS_SUBTOTAL'; end if;
+  v_total := v_subtotal - v_discount;
+
+  v_paid := coalesce(nullif(p_payment->>'amount','')::numeric, coalesce(nullif(p_purchase->>'paid_amount','')::numeric, 0));
+  v_payment_method := coalesce(nullif(p_payment->>'payment_method',''), 'cash');
+  v_payment_account := nullif(p_payment->>'account_id','')::uuid;
+
+  if v_paid < 0 then raise exception 'NEGATIVE_PAYMENT_NOT_ALLOWED'; end if;
+  if v_paid > v_total then raise exception 'PURCHASE_PAID_EXCEEDS_TOTAL'; end if;
+  if v_paid > 0 and v_payment_method not in ('cash','bank_transfer','card') then raise exception 'INVALID_PAYMENT_METHOD'; end if;
+  if v_paid > 0 and v_payment_account is null then
+    raise exception 'FINANCE_ACCOUNT_REQUIRED_FOR_PURCHASE_PAYMENT';
+  end if;
+
+  insert into public.pos_purchases(
+    supplier_id, location_id, invoice_no, purchase_date,
+    subtotal, discount, total, paid_amount, status, notes, idempotency_key
+  ) values (
+    v_supplier,
+    v_location,
+    nullif(p_purchase->>'invoice_no',''),
+    v_purchase_date,
+    v_subtotal,
+    v_discount,
+    v_total,
+    v_paid,
+    'posted',
+    nullif(p_purchase->>'notes',''),
+    nullif(p_idempotency_key,'')
+  ) returning * into v_purchase;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_qty := (v_item->>'qty')::numeric;
+    v_unit_cost := coalesce(nullif(v_item->>'unit_cost','')::numeric,0);
+    v_line_total := coalesce(nullif(v_item->>'line_total','')::numeric, v_qty * v_unit_cost);
+
+    insert into public.pos_purchase_items(purchase_id, product_code, product_name, qty, unit_cost, line_total)
+    values (v_purchase.id, v_item->>'product_code', v_item->>'product_name', v_qty, v_unit_cost, v_line_total);
+
+    perform public.pos_adjust_stock_checked(
+      v_location,
+      v_item->>'product_code',
+      v_item->>'product_name',
+      v_qty,
+      'purchase',
+      'pos_purchases',
+      v_purchase.id,
+      'فاتورة شراء' || coalesce(' | المستخدم: '||p_user_identifier,'')
+    );
+  end loop;
+
+  if v_total > 0 then
+    insert into public.pos_supplier_ledger(supplier_id, entry_date, entry_type, description, debit, credit, reference_table, reference_id)
+    values (v_supplier, v_purchase_date, 'purchase', 'فاتورة شراء رقم '||coalesce(v_purchase.invoice_no,''), 0, v_total, 'pos_purchases', v_purchase.id);
+  end if;
+
+  if v_paid > 0 then
+    insert into public.pos_supplier_ledger(supplier_id, entry_date, entry_type, description, debit, credit, reference_table, reference_id)
+    values (v_supplier, v_purchase_date, 'payment', 'دفعة على فاتورة شراء', v_paid, 0, 'pos_purchases', v_purchase.id);
+
+    if v_payment_account is not null then
+      insert into public.pos_finance_movements(account_id, direction, movement_type, amount, movement_date, reference_table, reference_id, notes)
+      values (v_payment_account, 'out', 'supplier_payment', v_paid, v_purchase_date, 'pos_purchases', v_purchase.id,
+              'دفع فاتورة شراء '||coalesce(v_purchase.invoice_no,'')||coalesce(' - المستخدم: '||p_user_identifier,''));
+    end if;
+  end if;
+
+  return to_jsonb(v_purchase) || jsonb_build_object('idempotent_replay', false);
+exception when unique_violation then
+  if p_idempotency_key is not null and trim(p_idempotency_key) <> '' then
+    select * into v_existing from public.pos_purchases where idempotency_key = p_idempotency_key limit 1;
+    if found then return to_jsonb(v_existing) || jsonb_build_object('idempotent_replay', true); end if;
+  end if;
+  raise;
+end;
+$function$
+"
+function,"post_sale_return_transaction(p_return jsonb, p_items jsonb, p_idempotency_key text, p_user_identifier text)","CREATE OR REPLACE FUNCTION public.post_sale_return_transaction(p_return jsonb, p_items jsonb, p_idempotency_key text DEFAULT NULL::text, p_user_identifier text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_existing public.pos_sale_returns%rowtype;
+  v_return public.pos_sale_returns%rowtype;
+  v_sale public.pos_sales%rowtype;
+  v_item jsonb;
+  v_sale_item public.pos_sale_items%rowtype;
+  v_return_date date;
+  v_location uuid;
+  v_customer uuid;
+  v_method text;
+  v_account uuid;
+  v_total numeric := 0;
+  v_qty numeric;
+  v_already_returned numeric;
+  v_base numeric;
+  v_line_discount numeric;
+  v_line_total numeric;
+  v_has_items boolean;
+  v_comp record;
+begin
+  if p_idempotency_key is not null and trim(p_idempotency_key) <> '' then
+    select * into v_existing from public.pos_sale_returns where idempotency_key = p_idempotency_key limit 1;
+    if found then
+      return to_jsonb(v_existing) || jsonb_build_object('idempotent_replay', true);
+    end if;
+  end if;
+
+  select * into v_sale
+  from public.pos_sales
+  where id = nullif(p_return->>'sale_id','')::uuid
+  for update;
+
+  if not found then raise exception 'ORIGINAL_SALE_NOT_FOUND'; end if;
+
+  v_return_date := coalesce(nullif(p_return->>'return_date','')::date, current_date);
+  v_location := coalesce(nullif(p_return->>'location_id','')::uuid, v_sale.location_id);
+  v_customer := coalesce(nullif(p_return->>'customer_id','')::uuid, v_sale.customer_id);
+  v_method := coalesce(nullif(p_return->>'refund_method',''), 'cash');
+  v_account := nullif(p_return->>'account_id','')::uuid;
+
+  perform public.pos_assert_role(array['admin','seller_11','seller_sarraj','sales_purchase']);
+  perform public.pos_assert_location_allowed(v_location);
+
+  if v_method not in ('cash','bank_transfer','card','credit_reduction','none') then
+    raise exception 'INVALID_REFUND_METHOD';
+  end if;
+  if v_method in ('cash','bank_transfer','card') and v_account is null then
+    raise exception 'REFUND_ACCOUNT_REQUIRED';
+  end if;
+  if v_method = 'credit_reduction' and v_customer is null then
+    raise exception 'CUSTOMER_REQUIRED_FOR_CREDIT_REDUCTION';
+  end if;
+
+  v_has_items := jsonb_typeof(p_items) = 'array' and jsonb_array_length(p_items) > 0;
+  if not v_has_items then raise exception 'RETURN_HAS_NO_ITEMS'; end if;
+
+  -- Validate all items and calculate total before writing.
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_qty := coalesce(nullif(v_item->>'qty','')::numeric, 0);
+    if v_qty <= 0 then raise exception 'RETURN_QTY_MUST_BE_POSITIVE'; end if;
+
+    select * into v_sale_item
+    from public.pos_sale_items
+    where id = nullif(v_item->>'sale_item_id','')::uuid
+    for update;
+
+    if not found then raise exception 'ORIGINAL_SALE_ITEM_NOT_FOUND'; end if;
+    if v_sale_item.sale_id <> v_sale.id then raise exception 'RETURN_ITEM_DOES_NOT_BELONG_TO_SALE'; end if;
+    if v_sale_item.qty <= 0 then raise exception 'CANNOT_RETURN_A_RETURN_LINE'; end if;
+
+    select coalesce(sum(ri.qty),0) into v_already_returned
+    from public.pos_sale_return_items ri
+    join public.pos_sale_returns r on r.id = ri.return_id
+    where ri.sale_item_id = v_sale_item.id;
+
+    if v_already_returned + v_qty > v_sale_item.qty then
+      raise exception 'RETURN_QTY_EXCEEDS_SOLD_QTY: product %, sold %, already returned %, requested %',
+        v_sale_item.product_code, v_sale_item.qty, v_already_returned, v_qty;
+    end if;
+
+    v_base := v_qty * v_sale_item.unit_price;
+    v_line_discount := least(v_base, coalesce(v_sale_item.line_discount,0) / nullif(v_sale_item.qty,0) * v_qty);
+    v_line_total := greatest(0, v_base - coalesce(v_line_discount,0));
+    v_total := v_total + v_line_total;
+  end loop;
+
+  if v_total <= 0 then raise exception 'RETURN_TOTAL_MUST_BE_POSITIVE'; end if;
+
+  insert into public.pos_sale_returns(sale_id, return_date, location_id, customer_id, total, refund_method, notes, idempotency_key)
+  values (v_sale.id, v_return_date, v_location, v_customer, v_total, v_method, nullif(p_return->>'notes',''), nullif(p_idempotency_key,''))
+  returning * into v_return;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_qty := (v_item->>'qty')::numeric;
+
+    select * into v_sale_item
+    from public.pos_sale_items
+    where id = nullif(v_item->>'sale_item_id','')::uuid
+    for update;
+
+    v_base := v_qty * v_sale_item.unit_price;
+    v_line_discount := least(v_base, coalesce(v_sale_item.line_discount,0) / nullif(v_sale_item.qty,0) * v_qty);
+    v_line_total := greatest(0, v_base - coalesce(v_line_discount,0));
+
+    insert into public.pos_sale_return_items(return_id, sale_item_id, product_code, product_name, qty, unit_price, line_discount, line_total)
+    values (v_return.id, v_sale_item.id, v_sale_item.product_code, v_sale_item.product_name, v_qty, v_sale_item.unit_price, coalesce(v_line_discount,0), v_line_total);
+
+    -- منتج مركّب: يُرجع المخزون إلى مكوّناته وليس لسطر المركّب نفسه
+    if exists (select 1 from public.pos_composite_items where composite_code = v_sale_item.product_code) then
+      for v_comp in select component_code, qty as comp_qty from public.pos_composite_items where composite_code = v_sale_item.product_code loop
+        perform public.pos_adjust_stock_checked(
+          v_location,
+          v_comp.component_code,
+          v_comp.component_code,
+          v_qty * coalesce(v_comp.comp_qty,1),
+          'return_customer',
+          'pos_sale_returns',
+          v_return.id,
+          'مكوّن منتج مركّب (مرتجع) ' || coalesce(v_sale_item.product_code,'') || coalesce(' | المستخدم: '||p_user_identifier,'')
+        );
+      end loop;
+    else
+      perform public.pos_adjust_stock_checked(
+        v_location,
+        v_sale_item.product_code,
+        v_sale_item.product_name,
+        v_qty,
+        'return_customer',
+        'pos_sale_returns',
+        v_return.id,
+        'مرتجع زبون' || coalesce(' | المستخدم: '||p_user_identifier,'')
+      );
+    end if;
+  end loop;
+
+  if v_method = 'credit_reduction' then
+    insert into public.pos_customer_ledger(customer_id, entry_date, entry_type, description, debit, credit, reference_table, reference_id)
+    values (v_customer, v_return_date, 'return', 'فاتورة مرتجع بيع رقم '||coalesce(v_sale.invoice_no,''), 0, v_total, 'pos_sale_returns', v_return.id);
+  elsif v_method in ('cash','bank_transfer','card') then
+    insert into public.pos_finance_movements(account_id, direction, movement_type, amount, movement_date, reference_table, reference_id, notes)
+    values (v_account, 'out', 'customer_refund', v_total, v_return_date, 'pos_sale_returns', v_return.id,
+            'Customer Refund / استرداد للزبون - مرتجع فاتورة '||coalesce(v_sale.invoice_no,'')||coalesce(' - المستخدم: '||p_user_identifier,''));
+  end if;
+
+  return to_jsonb(v_return) || jsonb_build_object('idempotent_replay', false);
+exception when unique_violation then
+  if p_idempotency_key is not null and trim(p_idempotency_key) <> '' then
+    select * into v_existing from public.pos_sale_returns where idempotency_key = p_idempotency_key limit 1;
+    if found then return to_jsonb(v_existing) || jsonb_build_object('idempotent_replay', true); end if;
+  end if;
+  raise;
+end;
+$function$
+"
+function,"post_sale_transaction(p_sale jsonb, p_items jsonb, p_payments jsonb, p_idempotency_key text, p_user_identifier text)","CREATE OR REPLACE FUNCTION public.post_sale_transaction(p_sale jsonb, p_items jsonb, p_payments jsonb DEFAULT '[]'::jsonb, p_idempotency_key text DEFAULT NULL::text, p_user_identifier text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_existing public.pos_sales%rowtype;
+  v_sale public.pos_sales%rowtype;
+  v_item jsonb;
+  v_payment jsonb;
+  v_location uuid;
+  v_customer uuid;
+  v_sale_date date;
+  v_subtotal numeric := 0;
+  v_discount numeric := 0;
+  v_total numeric := 0;
+  v_paid_abs numeric := 0;
+  v_paid_signed numeric := 0;
+  v_balance_due numeric := 0;
+  v_method text := 'cash';
+  v_line_total numeric;
+  v_qty numeric;
+  v_account uuid;
+  v_amount numeric;
+  v_payment_method text;
+  v_has_items boolean;
+  v_unit_cost numeric;
+  v_comp record;
+begin
+  if p_idempotency_key is not null and trim(p_idempotency_key) <> '' then
+    select * into v_existing from public.pos_sales where idempotency_key = p_idempotency_key limit 1;
+    if found then
+      return to_jsonb(v_existing) || jsonb_build_object('idempotent_replay', true);
+    end if;
+  end if;
+
+  v_has_items := jsonb_typeof(p_items) = 'array' and jsonb_array_length(p_items) > 0;
+  if not v_has_items then raise exception 'SALE_HAS_NO_ITEMS'; end if;
+
+  v_location := nullif(p_sale->>'location_id','')::uuid;
+  if v_location is null then raise exception 'LOCATION_REQUIRED'; end if;
+  perform public.pos_assert_role(array['admin','seller_11','seller_sarraj','sales_purchase']);
+  perform public.pos_assert_location_allowed(v_location);
+
+  v_customer := nullif(p_sale->>'customer_id','')::uuid;
+  v_sale_date := coalesce(nullif(p_sale->>'sale_date','')::date, current_date);
+  v_discount := coalesce(nullif(p_sale->>'discount','')::numeric, 0);
+  if v_discount < 0 then raise exception 'NEGATIVE_DISCOUNT_NOT_ALLOWED'; end if;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_qty := coalesce(nullif(v_item->>'qty','')::numeric, 0);
+    -- Phase 1 hardening: normal checkout must not contain unlinked return lines.
+    -- All customer returns must go through post_sale_return_transaction with original sale item IDs.
+    if v_qty <= 0 then raise exception 'NEGATIVE_OR_ZERO_SALE_QTY_NOT_ALLOWED_USE_RETURN_WORKFLOW'; end if;
+    if coalesce(nullif(v_item->>'unit_price','')::numeric, 0) < 0 then raise exception 'NEGATIVE_PRICE_NOT_ALLOWED'; end if;
+    v_line_total := coalesce(nullif(v_item->>'line_total','')::numeric, 0);
+    if v_line_total < 0 then raise exception 'NEGATIVE_LINE_TOTAL_NOT_ALLOWED'; end if;
+    v_subtotal := v_subtotal + v_line_total;
+  end loop;
+
+  if v_discount > v_subtotal then raise exception 'DISCOUNT_EXCEEDS_SUBTOTAL'; end if;
+  v_total := v_subtotal - v_discount;
+  if v_total > 0 and v_customer is null and coalesce(nullif(p_sale->>'balance_due','')::numeric,0) > 0 then
+    raise exception 'CUSTOMER_REQUIRED_FOR_CREDIT_SALE';
+  end if;
+
+  for v_payment in select * from jsonb_array_elements(coalesce(p_payments,'[]'::jsonb)) loop
+    v_amount := coalesce(nullif(v_payment->>'amount','')::numeric, 0);
+    v_payment_method := v_payment->>'payment_method';
+    if v_amount <= 0 then raise exception 'PAYMENT_AMOUNT_MUST_BE_POSITIVE'; end if;
+    if v_payment_method not in ('cash','bank_transfer','card') then raise exception 'INVALID_PAYMENT_METHOD: %', v_payment_method; end if;
+    if nullif(v_payment->>'account_id','') is null then
+      raise exception 'FINANCE_ACCOUNT_REQUIRED_FOR_PAYMENT_METHOD: %', v_payment_method;
+    end if;
+    v_paid_abs := v_paid_abs + v_amount;
+  end loop;
+
+  if v_paid_abs > v_total then raise exception 'PAID_AMOUNT_EXCEEDS_TOTAL'; end if;
+
+  v_paid_signed := v_paid_abs;
+  v_balance_due := greatest(0, v_total - v_paid_abs);
+  v_method := case
+    when v_balance_due > 0 then 'credit'
+    when jsonb_array_length(coalesce(p_payments,'[]'::jsonb)) > 1 then 'mixed'
+    when jsonb_array_length(coalesce(p_payments,'[]'::jsonb)) = 1 then (p_payments->0->>'payment_method')
+    else coalesce(nullif(p_sale->>'payment_method',''),'cash')
+  end;
+
+  insert into public.pos_sales(
+    invoice_no, sale_date, location_id, customer_id, payment_method,
+    subtotal, discount, total, paid_amount, balance_due, status, notes, idempotency_key, created_by
+  ) values (
+    nullif(p_sale->>'invoice_no',''), v_sale_date, v_location, v_customer, v_method,
+    v_subtotal, v_discount, v_total, v_paid_signed, v_balance_due, 'posted', nullif(p_sale->>'notes',''), nullif(p_idempotency_key,''), nullif(p_user_identifier,'')
+  ) returning * into v_sale;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_qty := (v_item->>'qty')::numeric;
+    select coalesce(p.purchase_price,0) into v_unit_cost
+    from public.pos_products p
+    where lower(p.code)=lower(v_item->>'product_code')
+    limit 1;
+    v_unit_cost := coalesce(v_unit_cost,0);
+
+    insert into public.pos_sale_items(sale_id, product_code, product_name, qty, unit_price, line_discount, discount_text, line_total, unit_cost_at_sale)
+    values (
+      v_sale.id,
+      v_item->>'product_code',
+      v_item->>'product_name',
+      v_qty,
+      coalesce(nullif(v_item->>'unit_price','')::numeric,0),
+      coalesce(nullif(v_item->>'line_discount','')::numeric,0),
+      nullif(v_item->>'discount_text',''),
+      coalesce(nullif(v_item->>'line_total','')::numeric,0),
+      v_unit_cost
+    );
+
+    -- منتج مركّب: يُخصم المخزون من مكوّناته (والفاتورة تحتفظ بسطر المركّب نفسه)
+    if exists (select 1 from public.pos_composite_items where composite_code = (v_item->>'product_code')) then
+      for v_comp in select component_code, qty as comp_qty from public.pos_composite_items where composite_code = (v_item->>'product_code') loop
+        perform public.pos_adjust_stock_checked(
+          v_location,
+          v_comp.component_code,
+          v_comp.component_code,
+          -(v_qty * coalesce(v_comp.comp_qty,1)),
+          'sale',
+          'pos_sales',
+          v_sale.id,
+          'مكوّن منتج مركّب ' || coalesce(v_item->>'product_code','') || coalesce(' | المستخدم: '||p_user_identifier,'')
+        );
+      end loop;
+    else
+      perform public.pos_adjust_stock_checked(
+        v_location,
+        v_item->>'product_code',
+        v_item->>'product_name',
+        -v_qty,
+        'sale',
+        'pos_sales',
+        v_sale.id,
+        'فاتورة بيع' || coalesce(' | المستخدم: '||p_user_identifier,'')
+      );
+    end if;
+  end loop;
+
+  for v_payment in select * from jsonb_array_elements(coalesce(p_payments,'[]'::jsonb)) loop
+    v_amount := (v_payment->>'amount')::numeric;
+    v_payment_method := v_payment->>'payment_method';
+    v_account := nullif(v_payment->>'account_id','')::uuid;
+
+    insert into public.pos_sale_payments(sale_id, payment_date, payment_method, amount, notes)
+    values (v_sale.id, v_sale_date, v_payment_method, v_amount, nullif(v_payment->>'notes',''));
+
+    if v_account is not null then
+      insert into public.pos_finance_movements(account_id, direction, movement_type, amount, movement_date, reference_table, reference_id, notes)
+      values (v_account,'in','sale_payment',v_amount,v_sale_date,'pos_sales',v_sale.id,
+        'تحصيل فاتورة بيع - فاتورة ' || coalesce(v_sale.invoice_no,'') || coalesce(' - المستخدم: '||p_user_identifier,''));
+    end if;
+  end loop;
+
+  if v_balance_due > 0 then
+    insert into public.pos_customer_ledger(customer_id, entry_date, entry_type, description, debit, credit, reference_table, reference_id)
+    values (v_customer, v_sale_date, 'sale', 'فاتورة بيع رقم '||coalesce(v_sale.invoice_no,''), v_balance_due, 0, 'pos_sales', v_sale.id);
+  end if;
+
+  return to_jsonb(v_sale) || jsonb_build_object('idempotent_replay', false);
+exception when unique_violation then
+  if p_idempotency_key is not null and trim(p_idempotency_key) <> '' then
+    select * into v_existing from public.pos_sales where idempotency_key = p_idempotency_key limit 1;
+    if found then return to_jsonb(v_existing) || jsonb_build_object('idempotent_replay', true); end if;
+  end if;
+  raise;
+end;
+$function$
+"
+function,"post_stock_transfer_transaction(p_transfer jsonb, p_items jsonb, p_idempotency_key text, p_user_identifier text)","CREATE OR REPLACE FUNCTION public.post_stock_transfer_transaction(p_transfer jsonb, p_items jsonb, p_idempotency_key text DEFAULT NULL::text, p_user_identifier text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_existing public.pos_stock_transfers%rowtype;
+  v_transfer public.pos_stock_transfers%rowtype;
+  v_from uuid;
+  v_to uuid;
+  v_date date;
+  v_item record;
+  v_has_items boolean;
+begin
+  if p_idempotency_key is not null and trim(p_idempotency_key) <> '' then
+    select * into v_existing from public.pos_stock_transfers where idempotency_key = p_idempotency_key limit 1;
+    if found then
+      return to_jsonb(v_existing) || jsonb_build_object('idempotent_replay', true);
+    end if;
+  end if;
+
+  v_from := nullif(p_transfer->>'from_location_id','')::uuid;
+  v_to := nullif(p_transfer->>'to_location_id','')::uuid;
+  v_date := coalesce(nullif(p_transfer->>'transfer_date','')::date, current_date);
+
+  if v_from is null or v_to is null then raise exception 'TRANSFER_LOCATIONS_REQUIRED'; end if;
+  if v_from = v_to then raise exception 'TRANSFER_SAME_LOCATION_NOT_ALLOWED'; end if;
+  perform public.pos_assert_role(array['admin','warehouse','seller_11','seller_sarraj','sales_purchase']);
+  -- البائعون: يجب أن يكون أحد طرفي التحويل فرعهم (إرسال أو استلام)
+  -- المدير/المخزن/البيع والشراء: أي طرفين
+  perform public.pos_assert_transfer_ends_allowed(v_from, v_to);
+
+  v_has_items := jsonb_typeof(p_items) = 'array' and jsonb_array_length(p_items) > 0;
+  if not v_has_items then raise exception 'TRANSFER_HAS_NO_ITEMS'; end if;
+
+  -- Validate grouped quantities before writing the header.
+  for v_item in
+    select
+      lower(x.product_code) as k,
+      max(x.product_code) as product_code,
+      max(x.product_name) as product_name,
+      sum(x.qty) as qty
+    from jsonb_to_recordset(p_items) as x(product_code text, product_name text, qty numeric)
+    group by lower(x.product_code)
+  loop
+    if v_item.product_code is null or trim(v_item.product_code) = '' then raise exception 'PRODUCT_CODE_REQUIRED'; end if;
+    if v_item.qty <= 0 then raise exception 'TRANSFER_QTY_MUST_BE_POSITIVE'; end if;
+  end loop;
+
+  insert into public.pos_stock_transfers(from_location_id, to_location_id, transfer_date, status, notes, idempotency_key)
+  values (v_from, v_to, v_date, 'posted', nullif(p_transfer->>'notes',''), nullif(p_idempotency_key,''))
+  returning * into v_transfer;
+
+  for v_item in
+    select
+      lower(x.product_code) as k,
+      max(x.product_code) as product_code,
+      max(x.product_name) as product_name,
+      sum(x.qty) as qty
+    from jsonb_to_recordset(p_items) as x(product_code text, product_name text, qty numeric)
+    group by lower(x.product_code)
+  loop
+    insert into public.pos_stock_transfer_items(transfer_id, product_code, product_name, qty)
+    values (v_transfer.id, v_item.product_code, v_item.product_name, v_item.qty);
+
+    perform public.pos_adjust_stock_checked(
+      v_from,
+      v_item.product_code,
+      v_item.product_name,
+      -abs(v_item.qty),
+      'transfer_out',
+      'pos_stock_transfers',
+      v_transfer.id,
+      'تحويل مخزون صادر' || coalesce(' | المستخدم: '||p_user_identifier,'')
+    );
+
+    perform public.pos_adjust_stock_checked(
+      v_to,
+      v_item.product_code,
+      v_item.product_name,
+      abs(v_item.qty),
+      'transfer_in',
+      'pos_stock_transfers',
+      v_transfer.id,
+      'تحويل مخزون وارد' || coalesce(' | المستخدم: '||p_user_identifier,'')
+    );
+  end loop;
+
+  return to_jsonb(v_transfer) || jsonb_build_object('idempotent_replay', false);
+exception when unique_violation then
+  if p_idempotency_key is not null and trim(p_idempotency_key) <> '' then
+    select * into v_existing from public.pos_stock_transfers where idempotency_key = p_idempotency_key limit 1;
+    if found then return to_jsonb(v_existing) || jsonb_build_object('idempotent_replay', true); end if;
+  end if;
+  raise;
+end;
+$function$
+"
+function,"save_pricechecker_cart(p_cart jsonb, p_items jsonb, p_cart_id uuid)","CREATE OR REPLACE FUNCTION public.save_pricechecker_cart(p_cart jsonb, p_items jsonb, p_cart_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_user uuid := auth.uid();
+  v_cart public.carts%rowtype;
+  v_item jsonb;
+begin
+  if v_user is null then
+    raise exception 'AUTH_REQUIRED';
+  end if;
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items)=0 then
+    raise exception 'CART_HAS_NO_ITEMS';
+  end if;
+
+  if p_cart_id is not null then
+    update public.carts
+      set user_id = v_user,
+          branch_name = nullif(p_cart->>'branch_name',''),
+          customer_name = nullif(p_cart->>'customer_name',''),
+          customer_phone = nullif(p_cart->>'customer_phone',''),
+          notes = nullif(p_cart->>'notes',''),
+          discount_percent = coalesce(nullif(p_cart->>'discount_percent','')::numeric,0),
+          subtotal = coalesce(nullif(p_cart->>'subtotal','')::numeric,0),
+          discount_amount = coalesce(nullif(p_cart->>'discount_amount','')::numeric,0),
+          total = coalesce(nullif(p_cart->>'total','')::numeric,0),
+          total_margin = coalesce(nullif(p_cart->>'total_margin','')::numeric,0),
+          total_margin_rate = coalesce(nullif(p_cart->>'total_margin_rate','')::numeric,0),
+          status = coalesce(nullif(p_cart->>'status',''),'open'),
+          updated_at = now()
+    where id = p_cart_id and (user_id = v_user or user_id is null)
+    returning * into v_cart;
+  end if;
+
+  if v_cart.id is null then
+    insert into public.carts(
+      user_id, branch_name, customer_name, customer_phone, notes,
+      discount_percent, subtotal, discount_amount, total,
+      total_margin, total_margin_rate, status, updated_at
+    ) values (
+      v_user, nullif(p_cart->>'branch_name',''), nullif(p_cart->>'customer_name',''), nullif(p_cart->>'customer_phone',''), nullif(p_cart->>'notes',''),
+      coalesce(nullif(p_cart->>'discount_percent','')::numeric,0),
+      coalesce(nullif(p_cart->>'subtotal','')::numeric,0),
+      coalesce(nullif(p_cart->>'discount_amount','')::numeric,0),
+      coalesce(nullif(p_cart->>'total','')::numeric,0),
+      coalesce(nullif(p_cart->>'total_margin','')::numeric,0),
+      coalesce(nullif(p_cart->>'total_margin_rate','')::numeric,0),
+      coalesce(nullif(p_cart->>'status',''),'open'),
+      now()
+    ) returning * into v_cart;
+  end if;
+
+  delete from public.cart_items
+  where cart_id = v_cart.id and (user_id = v_user or user_id is null);
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    insert into public.cart_items(
+      user_id, cart_id, product_code, product_name, brand, model,
+      quantity, unit_price, unit_cost, line_total, margin_value, margin_rate
+    ) values (
+      v_user,
+      v_cart.id,
+      v_item->>'product_code',
+      v_item->>'product_name',
+      nullif(v_item->>'brand',''),
+      nullif(v_item->>'model',''),
+      coalesce(nullif(v_item->>'quantity','')::numeric,0),
+      coalesce(nullif(v_item->>'unit_price','')::numeric,0),
+      coalesce(nullif(v_item->>'unit_cost','')::numeric,0),
+      coalesce(nullif(v_item->>'line_total','')::numeric,0),
+      coalesce(nullif(v_item->>'margin_value','')::numeric,0),
+      coalesce(nullif(v_item->>'margin_rate','')::numeric,0)
+    );
+  end loop;
+
+  return to_jsonb(v_cart);
+end;
+$function$
+"
+function,trg_pos_sales_invoice_number(),"CREATE OR REPLACE FUNCTION public.trg_pos_sales_invoice_number()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+begin
+  if new.invoice_no is null or trim(new.invoice_no) = '' then
+    new.invoice_no := public.next_pos_invoice_number();
+  end if;
+  return new;
+end;
+$function$
+"
+function,"update_app_user_credentials(p_old_identifier text, p_new_identifier text, p_new_code text)","CREATE OR REPLACE FUNCTION public.update_app_user_credentials(p_old_identifier text, p_new_identifier text DEFAULT NULL::text, p_new_code text DEFAULT NULL::text)
+ RETURNS text
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'auth', 'public', 'extensions'
+AS $function$
+declare
+  v_old_id text := lower(trim(coalesce(p_old_identifier,'')));
+  v_old_email text := v_old_id || '@bag.com';
+  v_new_id text := lower(trim(coalesce(p_new_identifier,'')));
+  v_target_id text;
+  v_target_email text;
+  v_uid uuid;
+begin
+  if public.pos_current_role() <> 'admin' then
+    raise exception 'ONLY_ADMIN_CAN_UPDATE_CREDENTIALS';
+  end if;
+
+  if v_old_id = '' then
+    raise exception 'OLD_IDENTIFIER_REQUIRED';
+  end if;
+
+  -- المعرّف الهدف: الجديد إن قُدّم وصالحاً، وإلا القديم
+  if v_new_id <> '' and v_new_id <> v_old_id then
+    if v_new_id !~ '^[a-z0-9._-]{2,40}$' then
+      raise exception 'INVALID_IDENTIFIER (حروف إنجليزية وأرقام فقط، 2-40)';
+    end if;
+    v_target_id := v_new_id;
+  else
+    v_target_id := v_old_id;
+  end if;
+  v_target_email := v_target_id || '@bag.com';
+
+  if coalesce(p_new_code,'') <> '' and length(p_new_code) < 6 then
+    raise exception 'CODE_TOO_SHORT (6 أحرف على الأقل)';
+  end if;
+
+  select id into v_uid from auth.users where lower(email) = v_old_email limit 1;
+
+  if v_uid is not null then
+    -- حساب موجود: تحديث البريد و/أو الكود
+    if v_target_id <> v_old_id then
+      if exists (select 1 from auth.users where lower(email) = v_target_email and id <> v_uid) then
+        raise exception 'IDENTIFIER_ALREADY_EXISTS: %', v_target_email;
+      end if;
+      update auth.users set email = v_target_email, updated_at = now() where id = v_uid;
+      update auth.identities
+         set identity_data = jsonb_set(identity_data, '{email}', to_jsonb(v_target_email)), updated_at = now()
+       where user_id = v_uid;
+    end if;
+    if coalesce(p_new_code,'') <> '' then
+      update auth.users set encrypted_password = crypt(p_new_code, gen_salt('bf')), updated_at = now() where id = v_uid;
+    end if;
+  else
+    -- لا يوجد حساب دخول لهذا المعرّف (دور بدون حساب — مثل مستخدم أُضيف يدوياً):
+    -- أدخل كوداً جديداً وسيُنشأ حساب الدخول ويرتبط بالدور الموجود تلقائياً
+    if coalesce(p_new_code,'') = '' then
+      raise exception 'USER_NOT_FOUND: % — لا يوجد حساب دخول بهذا المعرّف. أدخل كوداً جديداً لإنشائه.', v_old_email;
+    end if;
+    if exists (select 1 from auth.users where lower(email) = v_target_email) then
+      raise exception 'IDENTIFIER_ALREADY_EXISTS: %', v_target_email;
+    end if;
+    v_uid := gen_random_uuid();
+    insert into auth.users (
+      id, instance_id, aud, role, email, encrypted_password,
+      email_confirmed_at, created_at, updated_at,
+      raw_app_meta_data, raw_user_meta_data,
+          confirmation_token, email_change, email_change_token_new, recovery_token
+    ) values (
+      v_uid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', v_target_email,
+      crypt(p_new_code, gen_salt('bf')),
+      now(), now(), now(),
+      '{""provider"":""email"",""providers"":[""email""]}'::jsonb, '{}'::jsonb,
+          '', '', '', ''
+    );
+
+    insert into auth.identities (
+      id, provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at
+    ) values (
+      gen_random_uuid(), v_uid::text, v_uid,
+      jsonb_build_object('sub', v_uid::text, 'email', v_target_email, 'email_verified', true),
+      'email', now(), now(), now()
+    );
+  end if;
+
+  -- مزامنة جدول الصلاحيات عند تغيير المعرّف
+  if v_target_id <> v_old_id then
+    update public.pos_user_roles set identifier = v_target_id, updated_at = now() where lower(identifier) = v_old_id;
+  end if;
+
+  return v_target_email;
+end;
+$function$
+"
+function,"upsert_pos_user_role(p_identifier text, p_display_name text, p_role text, p_notes text, p_active boolean)","CREATE OR REPLACE FUNCTION public.upsert_pos_user_role(p_identifier text, p_display_name text DEFAULT NULL::text, p_role text DEFAULT 'viewer'::text, p_notes text DEFAULT NULL::text, p_active boolean DEFAULT true)
+ RETURNS pos_user_roles
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_admin_role text;
+  v_row public.pos_user_roles;
+begin
+  v_admin_role := public.pos_current_role();
+  if v_admin_role <> 'admin' then
+    raise exception 'ONLY_ADMIN_CAN_MANAGE_POS_ROLES';
+  end if;
+
+  if p_identifier is null or trim(p_identifier) = '' then
+    raise exception 'IDENTIFIER_REQUIRED';
+  end if;
+
+  if p_role not in ('admin','seller_11','seller_sarraj','sales_purchase','warehouse','accountant','viewer') then
+    raise exception 'INVALID_ROLE: %', p_role;
+  end if;
+
+  insert into public.pos_user_roles(identifier, display_name, role, active, notes, updated_at)
+  values (lower(trim(p_identifier)), nullif(trim(coalesce(p_display_name,'')),''), p_role, coalesce(p_active,true), nullif(trim(coalesce(p_notes,'')),''), now())
+  on conflict (identifier) do update
+    set display_name = excluded.display_name,
+        role = excluded.role,
+        active = excluded.active,
+        notes = excluded.notes,
+        updated_at = now()
+  returning * into v_row;
+
+  return v_row;
+end;
+$function$
+"
+policy,cart_items / owner delete cart items,cmd=DELETE roles=authenticated using=(user_id = auth.uid()) with_check=
+policy,cart_items / owner insert cart items,cmd=INSERT roles=authenticated using= with_check=(user_id = auth.uid())
+policy,cart_items / owner read cart items,cmd=SELECT roles=authenticated using=(user_id = auth.uid()) with_check=
+policy,cart_items / owner update cart items,cmd=UPDATE roles=authenticated using=(user_id = auth.uid()) with_check=(user_id = auth.uid())
+policy,carts / owner delete carts,cmd=DELETE roles=authenticated using=(user_id = auth.uid()) with_check=
+policy,carts / owner insert carts,cmd=INSERT roles=authenticated using= with_check=(user_id = auth.uid())
+policy,carts / owner read carts,cmd=SELECT roles=authenticated using=(user_id = auth.uid()) with_check=
+policy,carts / owner update carts,cmd=UPDATE roles=authenticated using=(user_id = auth.uid()) with_check=(user_id = auth.uid())
+policy,pos_audit_log / pos_role_audit_insert,cmd=INSERT roles=authenticated using= with_check=true
+policy,pos_audit_log / pos_role_audit_read,"cmd=SELECT roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text])) with_check="
+policy,pos_composite_items / pos_role_comp_read,cmd=SELECT roles=authenticated using=true with_check=
+policy,pos_composite_items / pos_role_comp_write,"cmd=ALL roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text])) with_check=(pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text]))"
+policy,pos_customer_ledger / pos_role_cledger_delete,"cmd=DELETE roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text])) OR ((pos_policy_role() = ANY (ARRAY['seller_11'::text, 'seller_sarraj'::text])) AND (reference_table = 'pos_sales'::text) AND (EXISTS ( SELECT 1
+   FROM pos_sales s
+  WHERE ((s.id = pos_customer_ledger.reference_id) AND (s.created_by = pos_current_identifier())))))) with_check="
+policy,pos_customer_ledger / pos_role_cledger_insert,"cmd=INSERT roles=authenticated using= with_check=((pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text])) OR ((pos_policy_role() = ANY (ARRAY['seller_11'::text, 'seller_sarraj'::text])) AND (((reference_table = 'pos_sales'::text) AND (EXISTS ( SELECT 1
+   FROM pos_sales s
+  WHERE ((s.id = pos_customer_ledger.reference_id) AND (s.created_by = pos_current_identifier()))))) OR ((entry_type = 'adjustment'::text) AND (reference_table IS NULL)))))"
+policy,pos_customer_ledger / pos_role_cledger_read,"cmd=SELECT roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'seller_11'::text, 'seller_sarraj'::text, 'sales_purchase'::text])) with_check="
+policy,pos_customers / pos_role_cust_delete,cmd=DELETE roles=authenticated using=(pos_policy_role() = 'admin'::text) with_check=
+policy,pos_customers / pos_role_cust_insert,"cmd=INSERT roles=authenticated using= with_check=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'seller_11'::text, 'seller_sarraj'::text, 'sales_purchase'::text]))"
+policy,pos_customers / pos_role_cust_read,"cmd=SELECT roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'seller_11'::text, 'seller_sarraj'::text, 'sales_purchase'::text])) with_check="
+policy,pos_customers / pos_role_cust_update,"cmd=UPDATE roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text])) with_check=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text]))"
+policy,pos_daily_cash_closings / pos_role_dcc_read,"cmd=SELECT roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text])) OR (branch_id = pos_current_branch_id())) with_check="
+policy,pos_daily_cash_closings / pos_role_dcc_write,"cmd=ALL roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text])) OR (branch_id = pos_current_branch_id())) with_check=((pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text])) OR (branch_id = pos_current_branch_id()))"
+policy,pos_employees / pos_role_employees,cmd=ALL roles=authenticated using=(pos_policy_role() = 'admin'::text) with_check=(pos_policy_role() = 'admin'::text)
+policy,pos_expense_categories / pos_role_ec_read,cmd=SELECT roles=authenticated using=true with_check=
+policy,pos_expense_categories / pos_role_ec_write,cmd=ALL roles=authenticated using=(pos_policy_role() = 'admin'::text) with_check=(pos_policy_role() = 'admin'::text)
+policy,pos_expenses / pos_role_exp_read,"cmd=SELECT roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text, 'viewer'::text])) OR ((pos_policy_role() = ANY (ARRAY['seller_11'::text, 'seller_sarraj'::text])) AND (location_id = pos_current_branch_id()))) with_check="
+policy,pos_expenses / pos_role_exp_write,"cmd=ALL roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text])) OR ((pos_policy_role() = ANY (ARRAY['seller_11'::text, 'seller_sarraj'::text])) AND (location_id = pos_current_branch_id()))) with_check=((pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text])) OR ((pos_policy_role() = ANY (ARRAY['seller_11'::text, 'seller_sarraj'::text])) AND (location_id = pos_current_branch_id())))"
+policy,pos_finance_accounts / pos_role_finacc_read,cmd=SELECT roles=authenticated using=true with_check=
+policy,pos_finance_accounts / pos_role_finacc_write,"cmd=ALL roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text])) with_check=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text]))"
+policy,pos_finance_movements / pos_role_finmv_delete,"cmd=DELETE roles=authenticated using=((pos_policy_role() = 'admin'::text) OR ((pos_policy_role() = ANY (ARRAY['seller_11'::text, 'seller_sarraj'::text])) AND (reference_table = 'pos_sales'::text) AND (EXISTS ( SELECT 1
+   FROM pos_sales s
+  WHERE ((s.id = pos_finance_movements.reference_id) AND (s.created_by = pos_current_identifier())))))) with_check="
+policy,pos_finance_movements / pos_role_finmv_insert,"cmd=INSERT roles=authenticated using= with_check=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'seller_11'::text, 'seller_sarraj'::text, 'sales_purchase'::text]))"
+policy,pos_finance_movements / pos_role_finmv_read,"cmd=SELECT roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'seller_11'::text, 'seller_sarraj'::text, 'sales_purchase'::text, 'viewer'::text])) with_check="
+policy,pos_finance_movements / pos_role_finmv_update,cmd=UPDATE roles=authenticated using=(pos_policy_role() = 'admin'::text) with_check=(pos_policy_role() = 'admin'::text)
+policy,pos_import_staging / pos_role_imp_admin,cmd=ALL roles=authenticated using=(pos_policy_role() = 'admin'::text) with_check=(pos_policy_role() = 'admin'::text)
+policy,pos_locations / pos_role_loc_read,cmd=SELECT roles=authenticated using=true with_check=
+policy,pos_locations / pos_role_loc_write,cmd=ALL roles=authenticated using=(pos_policy_role() = 'admin'::text) with_check=(pos_policy_role() = 'admin'::text)
+policy,pos_number_counters / pos_role_nc_admin,cmd=ALL roles=authenticated using=(pos_policy_role() = 'admin'::text) with_check=(pos_policy_role() = 'admin'::text)
+policy,pos_products / pos_anon_read_pos_products,cmd=SELECT roles=anon using=true with_check=
+policy,pos_products / pos_role_prod_delete,"cmd=DELETE roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text])) with_check="
+policy,pos_products / pos_role_prod_insert,"cmd=INSERT roles=authenticated using= with_check=(pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text]))"
+policy,pos_products / pos_role_prod_read,cmd=SELECT roles=authenticated using=true with_check=
+policy,pos_products / pos_role_prod_update,"cmd=UPDATE roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text, 'seller_11'::text, 'seller_sarraj'::text])) with_check=(pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text, 'seller_11'::text, 'seller_sarraj'::text]))"
+policy,pos_proforma_items / pos_role_profitems_read,"cmd=SELECT roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'seller_11'::text, 'seller_sarraj'::text, 'sales_purchase'::text])) with_check="
+policy,pos_proforma_items / pos_role_profitems_write,"cmd=ALL roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'seller_11'::text, 'seller_sarraj'::text, 'sales_purchase'::text])) with_check=(pos_policy_role() = ANY (ARRAY['admin'::text, 'seller_11'::text, 'seller_sarraj'::text, 'sales_purchase'::text]))"
+policy,pos_proformas / pos_role_prof_read,"cmd=SELECT roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'seller_11'::text, 'seller_sarraj'::text, 'sales_purchase'::text])) with_check="
+policy,pos_proformas / pos_role_prof_write,"cmd=ALL roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'seller_11'::text, 'seller_sarraj'::text, 'sales_purchase'::text])) with_check=(pos_policy_role() = ANY (ARRAY['admin'::text, 'seller_11'::text, 'seller_sarraj'::text, 'sales_purchase'::text]))"
+policy,pos_purchase_items / pos_role_pitems_read,"cmd=SELECT roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text, 'warehouse'::text, 'viewer'::text])) with_check="
+policy,pos_purchase_items / pos_role_pitems_write,"cmd=ALL roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text])) with_check=(pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text]))"
+policy,pos_purchases / pos_role_purch_read,"cmd=SELECT roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text, 'warehouse'::text, 'viewer'::text])) with_check="
+policy,pos_purchases / pos_role_purch_write,"cmd=ALL roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text])) with_check=(pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text]))"
+policy,pos_salary_payments / pos_role_salary_payments,cmd=ALL roles=authenticated using=(pos_policy_role() = 'admin'::text) with_check=(pos_policy_role() = 'admin'::text)
+policy,pos_sale_items / pos_role_items_read,"cmd=SELECT roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text, 'viewer'::text])) OR (EXISTS ( SELECT 1
+   FROM pos_sales s
+  WHERE ((s.id = pos_sale_items.sale_id) AND (s.location_id = pos_current_branch_id()))))) with_check="
+policy,pos_sale_items / pos_role_items_write,"cmd=ALL roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text])) OR (EXISTS ( SELECT 1
+   FROM pos_sales s
+  WHERE ((s.id = pos_sale_items.sale_id) AND (s.created_by = pos_current_identifier()) AND (s.location_id = pos_current_branch_id()))))) with_check=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text])) OR (EXISTS ( SELECT 1
+   FROM pos_sales s
+  WHERE ((s.id = pos_sale_items.sale_id) AND (s.created_by = pos_current_identifier()) AND (s.location_id = pos_current_branch_id())))))"
+policy,pos_sale_payments / pos_role_payread,"cmd=SELECT roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text, 'viewer'::text])) OR (EXISTS ( SELECT 1
+   FROM pos_sales s
+  WHERE ((s.id = pos_sale_payments.sale_id) AND (s.location_id = pos_current_branch_id()))))) with_check="
+policy,pos_sale_payments / pos_role_paywrite,"cmd=ALL roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text])) OR (EXISTS ( SELECT 1
+   FROM pos_sales s
+  WHERE ((s.id = pos_sale_payments.sale_id) AND (s.created_by = pos_current_identifier()) AND (s.location_id = pos_current_branch_id()))))) with_check=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text])) OR (EXISTS ( SELECT 1
+   FROM pos_sales s
+  WHERE ((s.id = pos_sale_payments.sale_id) AND (s.created_by = pos_current_identifier()) AND (s.location_id = pos_current_branch_id())))))"
+policy,pos_sale_return_items / pos_role_retitems_admin,cmd=ALL roles=authenticated using=(pos_policy_role() = 'admin'::text) with_check=(pos_policy_role() = 'admin'::text)
+policy,pos_sale_return_items / pos_role_retitems_read,"cmd=SELECT roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text, 'viewer'::text])) OR (EXISTS ( SELECT 1
+   FROM pos_sale_returns r
+  WHERE ((r.id = pos_sale_return_items.return_id) AND (r.location_id = pos_current_branch_id()))))) with_check="
+policy,pos_sale_returns / pos_role_ret_admin,cmd=ALL roles=authenticated using=(pos_policy_role() = 'admin'::text) with_check=(pos_policy_role() = 'admin'::text)
+policy,pos_sale_returns / pos_role_ret_read,"cmd=SELECT roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text, 'viewer'::text])) OR (location_id = pos_current_branch_id())) with_check="
+policy,pos_sales / pos_role_sales_delete,cmd=DELETE roles=authenticated using=(pos_policy_role() = 'admin'::text) with_check=
+policy,pos_sales / pos_role_sales_insert,"cmd=INSERT roles=authenticated using= with_check=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text])) OR ((pos_policy_role() = ANY (ARRAY['seller_11'::text, 'seller_sarraj'::text])) AND (created_by = pos_current_identifier())))"
+policy,pos_sales / pos_role_sales_read,"cmd=SELECT roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text, 'viewer'::text])) OR (location_id = pos_current_branch_id())) with_check="
+policy,pos_sales / pos_role_sales_update,"cmd=UPDATE roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text])) OR ((pos_policy_role() = ANY (ARRAY['seller_11'::text, 'seller_sarraj'::text])) AND (created_by = pos_current_identifier()))) with_check=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text])) OR ((pos_policy_role() = ANY (ARRAY['seller_11'::text, 'seller_sarraj'::text])) AND (created_by = pos_current_identifier())))"
+policy,pos_stock / pos_role_stock_delete,cmd=DELETE roles=authenticated using=(pos_policy_role() = 'admin'::text) with_check=
+policy,pos_stock / pos_role_stock_insert,"cmd=INSERT roles=authenticated using= with_check=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text])) OR ((pos_policy_role() = ANY (ARRAY['seller_11'::text, 'seller_sarraj'::text])) AND (location_id = pos_current_branch_id())))"
+policy,pos_stock / pos_role_stock_read,cmd=SELECT roles=authenticated using=true with_check=
+policy,pos_stock / pos_role_stock_update,"cmd=UPDATE roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text])) OR ((pos_policy_role() = ANY (ARRAY['seller_11'::text, 'seller_sarraj'::text])) AND (location_id = pos_current_branch_id()))) with_check=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text])) OR ((pos_policy_role() = ANY (ARRAY['seller_11'::text, 'seller_sarraj'::text])) AND (location_id = pos_current_branch_id())))"
+policy,pos_stock_movements / pos_role_stkmv_read,cmd=SELECT roles=authenticated using=true with_check=
+policy,pos_stock_movements / pos_role_stkmv_write,"cmd=ALL roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text])) OR ((pos_policy_role() = ANY (ARRAY['seller_11'::text, 'seller_sarraj'::text])) AND (((reference_table = 'pos_sales'::text) AND (EXISTS ( SELECT 1
+   FROM pos_sales s
+  WHERE ((s.id = pos_stock_movements.reference_id) AND (s.created_by = pos_current_identifier()))))) OR ((reference_table = 'pos_stock_transfers'::text) AND (EXISTS ( SELECT 1
+   FROM pos_stock_transfers t
+  WHERE ((t.id = pos_stock_movements.reference_id) AND ((t.from_location_id = pos_current_branch_id()) OR (t.to_location_id = pos_current_branch_id()))))))))) with_check=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text])) OR ((pos_policy_role() = ANY (ARRAY['seller_11'::text, 'seller_sarraj'::text])) AND (((reference_table = 'pos_sales'::text) AND (EXISTS ( SELECT 1
+   FROM pos_sales s
+  WHERE ((s.id = pos_stock_movements.reference_id) AND (s.created_by = pos_current_identifier()))))) OR ((reference_table = 'pos_stock_transfers'::text) AND (EXISTS ( SELECT 1
+   FROM pos_stock_transfers t
+  WHERE ((t.id = pos_stock_movements.reference_id) AND ((t.from_location_id = pos_current_branch_id()) OR (t.to_location_id = pos_current_branch_id())))))))))"
+policy,pos_stock_transfer_items / pos_role_tritems_read,"cmd=SELECT roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text])) OR (EXISTS ( SELECT 1
+   FROM pos_stock_transfers t
+  WHERE ((t.id = pos_stock_transfer_items.transfer_id) AND ((t.from_location_id = pos_current_branch_id()) OR (t.to_location_id = pos_current_branch_id())))))) with_check="
+policy,pos_stock_transfer_items / pos_role_tritems_write,"cmd=ALL roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text])) OR (EXISTS ( SELECT 1
+   FROM pos_stock_transfers t
+  WHERE ((t.id = pos_stock_transfer_items.transfer_id) AND ((t.from_location_id = pos_current_branch_id()) OR (t.to_location_id = pos_current_branch_id())))))) with_check=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text])) OR (EXISTS ( SELECT 1
+   FROM pos_stock_transfers t
+  WHERE ((t.id = pos_stock_transfer_items.transfer_id) AND ((t.from_location_id = pos_current_branch_id()) OR (t.to_location_id = pos_current_branch_id()))))))"
+policy,pos_stock_transfers / pos_role_tr_read,"cmd=SELECT roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text])) OR ((pos_policy_role() = ANY (ARRAY['seller_11'::text, 'seller_sarraj'::text])) AND ((from_location_id = pos_current_branch_id()) OR (to_location_id = pos_current_branch_id())))) with_check="
+policy,pos_stock_transfers / pos_role_tr_write,"cmd=ALL roles=authenticated using=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text])) OR ((pos_policy_role() = ANY (ARRAY['seller_11'::text, 'seller_sarraj'::text])) AND ((from_location_id = pos_current_branch_id()) OR (to_location_id = pos_current_branch_id())))) with_check=((pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text])) OR ((pos_policy_role() = ANY (ARRAY['seller_11'::text, 'seller_sarraj'::text])) AND ((from_location_id = pos_current_branch_id()) OR (to_location_id = pos_current_branch_id()))))"
+policy,pos_supplier_ledger / pos_role_sledger_delete,"cmd=DELETE roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'sales_purchase'::text, 'warehouse'::text])) with_check="
+policy,pos_supplier_ledger / pos_role_sledger_insert,"cmd=INSERT roles=authenticated using= with_check=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text, 'warehouse'::text]))"
+policy,pos_supplier_ledger / pos_role_sledger_read,"cmd=SELECT roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text])) with_check="
+policy,pos_supplier_payments / pos_role_spay_admin,cmd=UPDATE roles=authenticated using=(pos_policy_role() = 'admin'::text) with_check=(pos_policy_role() = 'admin'::text)
+policy,pos_supplier_payments / pos_role_spay_insert,"cmd=INSERT roles=authenticated using= with_check=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text]))"
+policy,pos_supplier_payments / pos_role_spay_read,"cmd=SELECT roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text])) with_check="
+policy,pos_suppliers / pos_role_supp_read,"cmd=SELECT roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text, 'warehouse'::text])) with_check="
+policy,pos_suppliers / pos_role_supp_write,"cmd=ALL roles=authenticated using=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text])) with_check=(pos_policy_role() = ANY (ARRAY['admin'::text, 'accountant'::text, 'sales_purchase'::text]))"
+policy,pos_user_roles / pos_role_ur_read,cmd=SELECT roles=authenticated using=true with_check=
+policy,pos_user_roles / pos_role_ur_write,cmd=ALL roles=authenticated using=(pos_policy_role() = 'admin'::text) with_check=(pos_policy_role() = 'admin'::text)
+policy,product_costs / authenticated can read product costs,cmd=SELECT roles=authenticated using=true with_check=
+policy,staff_roles / staff can read own role,cmd=SELECT roles=authenticated using=(user_id = auth.uid()) with_check=
+policy,web_order_items / public create web order items,cmd=INSERT roles=anon using= with_check=true
+policy,web_order_items / staff read web order items,cmd=SELECT roles=authenticated using=true with_check=
+policy,web_orders / public create web orders,"cmd=INSERT roles=anon using= with_check=((status IS NULL) OR (status = ANY (ARRAY['جديد'::text, 'new'::text])))"
+policy,web_orders / staff read web orders,cmd=SELECT roles=authenticated using=true with_check=
+policy,web_orders / staff update web orders,cmd=UPDATE roles=authenticated using=true with_check=true
+policy,web_products / public read active web products,"cmd=SELECT roles=anon,authenticated using=(COALESCE(active, true) = true) with_check="
+policy,web_products / staff delete web products,cmd=DELETE roles=authenticated using=true with_check=
+policy,web_products / staff insert web products,cmd=INSERT roles=authenticated using= with_check=true
+policy,web_products / staff update web products,cmd=UPDATE roles=authenticated using=true with_check=true
+sequence,pos_customer_no_seq,sequence
+table,app_users,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), identifier text not null, code_hash text not null, created_at timestamp with time zone default now()"", ""indexes"": """", ""constraints"": ""UNIQUE (identifier); PRIMARY KEY (id)""}"
+table,cart_items,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), cart_id uuid, product_code text not null, product_name text, brand text, model text, quantity numeric default 1, unit_price numeric default 0, unit_cost numeric default 0, line_total numeric default 0, margin_value numeric default 0, margin_rate numeric default 0, created_at timestamp with time zone default now(), user_id uuid"", ""indexes"": """", ""constraints"": ""FOREIGN KEY (cart_id) REFERENCES carts(id) ON DELETE CASCADE; PRIMARY KEY (id); FOREIGN KEY (user_id) REFERENCES auth.users(id)""}"
+table,carts,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), customer_name text, customer_phone text, notes text, discount_percent numeric default 0, subtotal numeric default 0, discount_amount numeric default 0, total numeric default 0, total_margin numeric default 0, total_margin_rate numeric default 0, status text default 'open'::text, created_at timestamp with time zone default now(), updated_at timestamp with time zone default now(), user_id uuid, app_user_id uuid, branch_name text"", ""indexes"": """", ""constraints"": ""FOREIGN KEY (app_user_id) REFERENCES app_users(id) ON DELETE CASCADE; PRIMARY KEY (id); FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE""}"
+table,pos_audit_log,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), user_identifier text, action text not null, entity_type text, entity_id text, details text, branch_id uuid, created_at timestamp with time zone not null default now()"", ""indexes"": ""CREATE INDEX pos_audit_log_idx ON public.pos_audit_log USING btree (created_at DESC)"", ""constraints"": ""PRIMARY KEY (id)""}"
+table,pos_composite_items,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), composite_code text not null, component_code text not null, component_name text, qty numeric not null default 1, created_at timestamp with time zone not null default now()"", ""indexes"": ""CREATE INDEX pos_composite_items_idx ON public.pos_composite_items USING btree (composite_code)"", ""constraints"": ""PRIMARY KEY (id)""}"
+table,pos_customer_ledger,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), customer_id uuid not null, entry_date date not null default CURRENT_DATE, entry_type text not null, description text, debit numeric not null default 0, credit numeric not null default 0, reference_table text, reference_id uuid, created_at timestamp with time zone not null default now()"", ""indexes"": ""CREATE INDEX pos_customer_ledger_customer_idx ON public.pos_customer_ledger USING btree (customer_id, entry_date DESC, created_at DESC)"", ""constraints"": ""CHECK ((credit >= (0)::numeric)); FOREIGN KEY (customer_id) REFERENCES pos_customers(id) ON DELETE CASCADE; CHECK ((debit >= (0)::numeric)); CHECK ((entry_type = ANY (ARRAY['opening'::text, 'sale'::text, 'payment'::text, 'return'::text, 'adjustment'::text]))); PRIMARY KEY (id)""}"
+table,pos_customers,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), name text not null, phone text, address text, notes text, active boolean not null default true, created_at timestamp with time zone not null default now(), updated_at timestamp with time zone not null default now(), customer_no text, phone2 text"", ""indexes"": ""CREATE UNIQUE INDEX pos_customers_customer_no_uidx ON public.pos_customers USING btree (customer_no) WHERE ((customer_no IS NOT NULL) AND (TRIM(BOTH FROM customer_no) <> ''::text)); CREATE INDEX pos_customers_name_idx ON public.pos_customers USING btree (name); CREATE UNIQUE INDEX pos_customers_phone_clean_uidx ON public.pos_customers USING btree (regexp_replace(COALESCE(phone, ''::text), '[^0-9+]'::text, ''::text, 'g'::text)) WHERE ((phone IS NOT NULL) AND (TRIM(BOTH FROM phone) <> ''::text) AND (regexp_replace(COALESCE(phone, ''::text), '[^0-9+]'::text, ''::text, 'g'::text) <> ''::text) AND (regexp_replace(COALESCE(phone, ''::text), '[^0-9+]'::text, ''::text, 'g'::text) <> ALL (ARRAY['0'::text, '00'::text, '000'::text]))); CREATE INDEX pos_customers_phone_idx ON public.pos_customers USING btree (phone)"", ""constraints"": ""PRIMARY KEY (id)""}"
+table,pos_daily_cash_closings,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), closing_date date not null, branch_id uuid not null, branch_name text, responsible_identifier text, invoice_count integer not null default 0, sales_cash numeric not null default 0, sales_card numeric not null default 0, sales_bank_transfer numeric not null default 0, expenses_cash numeric not null default 0, expenses_card numeric not null default 0, expenses_bank_transfer numeric not null default 0, customer_payments_cash numeric not null default 0, customer_payments_card numeric not null default 0, customer_payments_bank_transfer numeric not null default 0, supplier_payments_cash numeric not null default 0, supplier_payments_card numeric not null default 0, supplier_payments_bank_transfer numeric not null default 0, refunds_cash numeric not null default 0, refunds_card numeric not null default 0, refunds_bank_transfer numeric not null default 0, cash_remaining numeric not null default 0, notes text, created_by text, created_at timestamp with time zone not null default now(), updated_at timestamp with time zone not null default now()"", ""indexes"": ""CREATE INDEX pos_daily_cash_closings_date_idx ON public.pos_daily_cash_closings USING btree (closing_date DESC, branch_id)"", ""constraints"": ""UNIQUE (branch_id, closing_date); FOREIGN KEY (branch_id) REFERENCES pos_locations(id) ON DELETE CASCADE; PRIMARY KEY (id)""}"
+table,pos_employees,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), name text not null, phone text, position text, monthly_salary numeric not null default 0, active boolean not null default true, notes text, created_at timestamp with time zone not null default now(), updated_at timestamp with time zone not null default now()"", ""indexes"": """", ""constraints"": ""PRIMARY KEY (id)""}"
+table,pos_expense_categories,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), name text not null, active boolean not null default true, created_at timestamp with time zone not null default now()"", ""indexes"": """", ""constraints"": ""UNIQUE (name); PRIMARY KEY (id)""}"
+table,pos_expenses,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), expense_date date not null default CURRENT_DATE, account_id uuid not null, category_id uuid, title text not null, amount numeric not null, notes text, created_at timestamp with time zone not null default now(), updated_at timestamp with time zone not null default now(), location_id uuid, created_by text"", ""indexes"": ""CREATE INDEX pos_expenses_date_idx ON public.pos_expenses USING btree (expense_date DESC, created_at DESC); CREATE INDEX pos_expenses_location_date_idx ON public.pos_expenses USING btree (location_id, expense_date DESC, created_at DESC)"", ""constraints"": ""FOREIGN KEY (account_id) REFERENCES pos_finance_accounts(id); CHECK ((amount > (0)::numeric)); FOREIGN KEY (category_id) REFERENCES pos_expense_categories(id); FOREIGN KEY (location_id) REFERENCES pos_locations(id) ON DELETE SET NULL; PRIMARY KEY (id)""}"
+table,pos_finance_accounts,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), name text not null, account_type text not null, location_id uuid, bank_name text, account_no text, opening_balance numeric not null default 0, active boolean not null default true, notes text, created_at timestamp with time zone not null default now(), updated_at timestamp with time zone not null default now(), accepted_methods text[]"", ""indexes"": ""CREATE INDEX pos_finance_accounts_type_idx ON public.pos_finance_accounts USING btree (account_type, active)"", ""constraints"": ""CHECK (((accepted_methods IS NULL) OR (accepted_methods <@ ARRAY['cash'::text, 'bank_transfer'::text, 'card'::text]))); CHECK ((account_type = ANY (ARRAY['cash'::text, 'bank'::text, 'card'::text]))); FOREIGN KEY (location_id) REFERENCES pos_locations(id) ON DELETE SET NULL; UNIQUE (name); PRIMARY KEY (id)""}"
+table,pos_finance_movements,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), account_id uuid not null, movement_date date not null default CURRENT_DATE, movement_type text not null, direction text not null, amount numeric not null, reference_table text, reference_id uuid, notes text, created_at timestamp with time zone not null default now()"", ""indexes"": ""CREATE INDEX pos_finance_movements_account_idx ON public.pos_finance_movements USING btree (account_id, movement_date DESC, created_at DESC)"", ""constraints"": ""FOREIGN KEY (account_id) REFERENCES pos_finance_accounts(id) ON DELETE CASCADE; CHECK ((amount > (0)::numeric)); CHECK ((direction = ANY (ARRAY['in'::text, 'out'::text]))); CHECK ((movement_type = ANY (ARRAY['opening'::text, 'sale_payment'::text, 'supplier_payment'::text, 'customer_payment'::text, 'transfer_in'::text, 'transfer_out'::text, 'expense'::text, 'salary'::text, 'adjustment'::text, 'customer_refund'::text]))); PRIMARY KEY (id)""}"
+table,pos_import_staging,"{""rls"": true, ""columns"": ""code text not null, name text, brand text, model text, stock_11 numeric, stock_sarraj numeric, stock_janzour numeric, supplier_name text, category text, purchase_price numeric, retail_price numeric"", ""indexes"": """", ""constraints"": ""PRIMARY KEY (code)""}"
+table,pos_locations,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), name text not null, location_type text not null, is_sales_location boolean not null default false, active boolean not null default true, notes text, created_at timestamp with time zone not null default now(), updated_at timestamp with time zone not null default now()"", ""indexes"": """", ""constraints"": ""CHECK ((location_type = ANY (ARRAY['branch'::text, 'warehouse'::text]))); UNIQUE (name); PRIMARY KEY (id)""}"
+table,pos_number_counters,"{""rls"": true, ""columns"": ""key text not null, last_value bigint not null default 0, updated_at timestamp with time zone not null default now()"", ""indexes"": """", ""constraints"": ""PRIMARY KEY (key)""}"
+table,pos_products,"{""rls"": true, ""columns"": ""code text not null, name text not null, brand text, model text, category text, supplier_id uuid, purchase_price numeric not null default 0, retail_price numeric not null default 0, active boolean not null default true, created_at timestamp with time zone not null default now(), updated_at timestamp with time zone not null default now(), color text, barcode text, reorder_point numeric not null default 0, wholesale_price numeric not null default 0, description text"", ""indexes"": ""CREATE INDEX pos_products_barcode_idx ON public.pos_products USING btree (barcode); CREATE INDEX pos_products_category_idx ON public.pos_products USING btree (category); CREATE INDEX pos_products_color_idx ON public.pos_products USING btree (color); CREATE INDEX pos_products_name_idx ON public.pos_products USING btree (name); CREATE INDEX pos_products_reorder_point_idx ON public.pos_products USING btree (reorder_point); CREATE INDEX pos_products_supplier_idx ON public.pos_products USING btree (supplier_id)"", ""constraints"": ""PRIMARY KEY (code); FOREIGN KEY (supplier_id) REFERENCES pos_suppliers(id) ON DELETE SET NULL""}"
+table,pos_proforma_items,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), proforma_id uuid not null, product_code text not null, product_name text not null, qty numeric not null, unit_price numeric not null default 0, line_discount numeric not null default 0, discount_text text, line_total numeric not null default 0, created_at timestamp with time zone not null default now()"", ""indexes"": ""CREATE INDEX pos_proforma_items_proforma_idx ON public.pos_proforma_items USING btree (proforma_id)"", ""constraints"": ""PRIMARY KEY (id); FOREIGN KEY (proforma_id) REFERENCES pos_proformas(id) ON DELETE CASCADE; CHECK ((qty > (0)::numeric))""}"
+table,pos_proformas,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), proforma_no text, proforma_date date not null default CURRENT_DATE, location_id uuid, customer_id uuid, customer_name text, customer_phone text, subtotal numeric not null default 0, discount numeric not null default 0, total numeric not null default 0, status text not null default 'draft'::text, source_sale_id uuid, converted_sale_id uuid, notes text, created_at timestamp with time zone not null default now(), updated_at timestamp with time zone not null default now()"", ""indexes"": ""CREATE INDEX pos_proformas_date_idx ON public.pos_proformas USING btree (proforma_date DESC, created_at DESC); CREATE INDEX pos_proformas_source_sale_idx ON public.pos_proformas USING btree (source_sale_id)"", ""constraints"": ""FOREIGN KEY (converted_sale_id) REFERENCES pos_sales(id) ON DELETE SET NULL; FOREIGN KEY (customer_id) REFERENCES pos_customers(id) ON DELETE SET NULL; FOREIGN KEY (location_id) REFERENCES pos_locations(id) ON DELETE SET NULL; PRIMARY KEY (id); FOREIGN KEY (source_sale_id) REFERENCES pos_sales(id) ON DELETE SET NULL; CHECK ((status = ANY (ARRAY['draft'::text, 'converted'::text, 'cancelled'::text])))""}"
+table,pos_purchase_items,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), purchase_id uuid not null, product_code text, product_name text not null, qty numeric not null, unit_cost numeric not null default 0, line_total numeric not null default 0, created_at timestamp with time zone not null default now()"", ""indexes"": """", ""constraints"": ""PRIMARY KEY (id); FOREIGN KEY (purchase_id) REFERENCES pos_purchases(id) ON DELETE CASCADE; CHECK ((qty > (0)::numeric)); CHECK ((unit_cost >= (0)::numeric))""}"
+table,pos_purchases,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), supplier_id uuid, location_id uuid, invoice_no text, purchase_date date not null default CURRENT_DATE, subtotal numeric not null default 0, discount numeric not null default 0, total numeric not null default 0, paid_amount numeric not null default 0, status text not null default 'posted'::text, notes text, created_at timestamp with time zone not null default now(), updated_at timestamp with time zone not null default now(), idempotency_key text"", ""indexes"": ""CREATE UNIQUE INDEX pos_purchases_idempotency_key_uidx ON public.pos_purchases USING btree (idempotency_key) WHERE ((idempotency_key IS NOT NULL) AND (TRIM(BOTH FROM idempotency_key) <> ''::text))"", ""constraints"": ""FOREIGN KEY (location_id) REFERENCES pos_locations(id); PRIMARY KEY (id); CHECK ((status = ANY (ARRAY['draft'::text, 'posted'::text, 'cancelled'::text]))); FOREIGN KEY (supplier_id) REFERENCES pos_suppliers(id)""}"
+table,pos_salary_payments,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), employee_id uuid, account_id uuid not null, payment_date date not null default CURRENT_DATE, period text, amount numeric not null, notes text, created_at timestamp with time zone not null default now(), updated_at timestamp with time zone not null default now()"", ""indexes"": ""CREATE INDEX pos_salary_payments_date_idx ON public.pos_salary_payments USING btree (payment_date DESC, created_at DESC)"", ""constraints"": ""FOREIGN KEY (account_id) REFERENCES pos_finance_accounts(id); CHECK ((amount > (0)::numeric)); FOREIGN KEY (employee_id) REFERENCES pos_employees(id) ON DELETE SET NULL; PRIMARY KEY (id)""}"
+table,pos_sale_items,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), sale_id uuid not null, product_code text not null, product_name text not null, qty numeric not null, unit_price numeric not null default 0, line_total numeric not null default 0, created_at timestamp with time zone not null default now(), line_discount numeric not null default 0, discount_text text, unit_cost_at_sale numeric not null default 0"", ""indexes"": ""CREATE INDEX pos_sale_items_sale_idx ON public.pos_sale_items USING btree (sale_id)"", ""constraints"": ""PRIMARY KEY (id); CHECK ((qty <> (0)::numeric)); FOREIGN KEY (sale_id) REFERENCES pos_sales(id) ON DELETE CASCADE; CHECK ((unit_cost_at_sale >= (0)::numeric)); CHECK ((unit_price >= (0)::numeric))""}"
+table,pos_sale_payments,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), sale_id uuid not null, payment_date date not null default CURRENT_DATE, payment_method text not null, amount numeric not null, notes text, created_at timestamp with time zone not null default now()"", ""indexes"": ""CREATE INDEX pos_sale_payments_date_idx ON public.pos_sale_payments USING btree (payment_date DESC, created_at DESC); CREATE INDEX pos_sale_payments_sale_idx ON public.pos_sale_payments USING btree (sale_id)"", ""constraints"": ""CHECK ((amount > (0)::numeric)); CHECK ((payment_method = ANY (ARRAY['cash'::text, 'bank_transfer'::text, 'card'::text]))); PRIMARY KEY (id); FOREIGN KEY (sale_id) REFERENCES pos_sales(id) ON DELETE CASCADE""}"
+table,pos_sale_return_items,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), return_id uuid not null, sale_item_id uuid, product_code text not null, product_name text not null, qty numeric not null, unit_price numeric not null default 0, line_discount numeric not null default 0, line_total numeric not null default 0, created_at timestamp with time zone not null default now()"", ""indexes"": ""CREATE INDEX pos_sale_return_items_return_idx ON public.pos_sale_return_items USING btree (return_id)"", ""constraints"": ""PRIMARY KEY (id); CHECK ((qty > (0)::numeric)); FOREIGN KEY (return_id) REFERENCES pos_sale_returns(id) ON DELETE CASCADE; FOREIGN KEY (sale_item_id) REFERENCES pos_sale_items(id) ON DELETE SET NULL""}"
+table,pos_sale_returns,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), sale_id uuid not null, return_date date not null default CURRENT_DATE, location_id uuid, customer_id uuid, total numeric not null default 0, refund_method text not null default 'cash'::text, notes text, created_at timestamp with time zone not null default now(), updated_at timestamp with time zone not null default now(), idempotency_key text"", ""indexes"": ""CREATE INDEX pos_sale_returns_date_idx ON public.pos_sale_returns USING btree (return_date DESC, created_at DESC); CREATE UNIQUE INDEX pos_sale_returns_idempotency_key_uidx ON public.pos_sale_returns USING btree (idempotency_key) WHERE ((idempotency_key IS NOT NULL) AND (TRIM(BOTH FROM idempotency_key) <> ''::text)); CREATE INDEX pos_sale_returns_sale_idx ON public.pos_sale_returns USING btree (sale_id, return_date DESC)"", ""constraints"": ""FOREIGN KEY (customer_id) REFERENCES pos_customers(id) ON DELETE SET NULL; FOREIGN KEY (location_id) REFERENCES pos_locations(id); PRIMARY KEY (id); CHECK ((refund_method = ANY (ARRAY['cash'::text, 'bank_transfer'::text, 'card'::text, 'credit_reduction'::text, 'none'::text]))); FOREIGN KEY (sale_id) REFERENCES pos_sales(id) ON DELETE CASCADE""}"
+table,pos_sales,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), invoice_no text, sale_date date not null default CURRENT_DATE, location_id uuid, customer_id uuid, payment_method text not null default 'cash'::text, subtotal numeric not null default 0, discount numeric not null default 0, total numeric not null default 0, paid_amount numeric not null default 0, balance_due numeric not null default 0, status text not null default 'posted'::text, notes text, created_at timestamp with time zone not null default now(), updated_at timestamp with time zone not null default now(), idempotency_key text, created_by text"", ""indexes"": ""CREATE INDEX pos_sales_created_by_idx ON public.pos_sales USING btree (created_by); CREATE INDEX pos_sales_date_idx ON public.pos_sales USING btree (sale_date DESC, created_at DESC); CREATE UNIQUE INDEX pos_sales_idempotency_key_uidx ON public.pos_sales USING btree (idempotency_key) WHERE ((idempotency_key IS NOT NULL) AND (TRIM(BOTH FROM idempotency_key) <> ''::text)); CREATE UNIQUE INDEX pos_sales_invoice_no_uidx ON public.pos_sales USING btree (invoice_no) WHERE ((invoice_no IS NOT NULL) AND (TRIM(BOTH FROM invoice_no) <> ''::text))"", ""constraints"": ""FOREIGN KEY (customer_id) REFERENCES pos_customers(id) ON DELETE SET NULL; FOREIGN KEY (location_id) REFERENCES pos_locations(id); CHECK ((payment_method = ANY (ARRAY['cash'::text, 'bank_transfer'::text, 'card'::text, 'mixed'::text, 'credit'::text]))); PRIMARY KEY (id); CHECK ((status = ANY (ARRAY['draft'::text, 'posted'::text, 'cancelled'::text])))""}"
+table,pos_stock,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), location_id uuid not null, product_code text not null, product_name text, qty numeric not null default 0, updated_at timestamp with time zone not null default now()"", ""indexes"": """", ""constraints"": ""FOREIGN KEY (location_id) REFERENCES pos_locations(id) ON DELETE CASCADE; UNIQUE (location_id, product_code); PRIMARY KEY (id)""}"
+table,pos_stock_movements,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), movement_date timestamp with time zone not null default now(), location_id uuid, product_code text not null, product_name text, movement_type text not null, qty_change numeric not null, reference_table text, reference_id uuid, notes text, created_at timestamp with time zone not null default now()"", ""indexes"": """", ""constraints"": ""FOREIGN KEY (location_id) REFERENCES pos_locations(id); CHECK ((movement_type = ANY (ARRAY['purchase'::text, 'sale'::text, 'return_supplier'::text, 'return_customer'::text, 'transfer_in'::text, 'transfer_out'::text, 'adjustment'::text]))); PRIMARY KEY (id)""}"
+table,pos_stock_transfer_items,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), transfer_id uuid not null, product_code text not null, product_name text, qty numeric not null, created_at timestamp with time zone not null default now()"", ""indexes"": """", ""constraints"": ""PRIMARY KEY (id); CHECK ((qty > (0)::numeric)); FOREIGN KEY (transfer_id) REFERENCES pos_stock_transfers(id) ON DELETE CASCADE""}"
+table,pos_stock_transfers,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), transfer_date date not null default CURRENT_DATE, from_location_id uuid, to_location_id uuid, status text not null default 'draft'::text, notes text, created_at timestamp with time zone not null default now(), updated_at timestamp with time zone not null default now(), idempotency_key text"", ""indexes"": ""CREATE UNIQUE INDEX pos_stock_transfers_idempotency_key_uidx ON public.pos_stock_transfers USING btree (idempotency_key) WHERE ((idempotency_key IS NOT NULL) AND (TRIM(BOTH FROM idempotency_key) <> ''::text))"", ""constraints"": ""FOREIGN KEY (from_location_id) REFERENCES pos_locations(id); PRIMARY KEY (id); CHECK ((status = ANY (ARRAY['draft'::text, 'posted'::text, 'cancelled'::text]))); FOREIGN KEY (to_location_id) REFERENCES pos_locations(id)""}"
+table,pos_supplier_ledger,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), supplier_id uuid not null, entry_date date not null default CURRENT_DATE, entry_type text not null, description text, debit numeric not null default 0, credit numeric not null default 0, reference_table text, reference_id uuid, created_at timestamp with time zone not null default now()"", ""indexes"": ""CREATE INDEX pos_supplier_ledger_supplier_idx ON public.pos_supplier_ledger USING btree (supplier_id, entry_date DESC, created_at DESC)"", ""constraints"": ""CHECK ((credit >= (0)::numeric)); CHECK ((debit >= (0)::numeric)); CHECK ((entry_type = ANY (ARRAY['opening'::text, 'purchase'::text, 'payment'::text, 'return'::text, 'adjustment'::text]))); PRIMARY KEY (id); FOREIGN KEY (supplier_id) REFERENCES pos_suppliers(id) ON DELETE CASCADE""}"
+table,pos_supplier_payments,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), supplier_id uuid not null, payment_date date not null default CURRENT_DATE, amount numeric not null, payment_method text not null, notes text, created_at timestamp with time zone not null default now()"", ""indexes"": """", ""constraints"": ""CHECK ((amount > (0)::numeric)); CHECK ((payment_method = ANY (ARRAY['cash'::text, 'bank_transfer'::text, 'card'::text]))); PRIMARY KEY (id); FOREIGN KEY (supplier_id) REFERENCES pos_suppliers(id) ON DELETE CASCADE""}"
+table,pos_suppliers,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), name text not null, phone text, address text, notes text, opening_balance numeric not null default 0, active boolean not null default true, created_at timestamp with time zone not null default now(), updated_at timestamp with time zone not null default now()"", ""indexes"": ""CREATE INDEX pos_suppliers_name_idx ON public.pos_suppliers USING btree (name)"", ""constraints"": ""PRIMARY KEY (id)""}"
+table,pos_user_roles,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), identifier text not null, display_name text, role text not null default 'seller_11'::text, location_name text, active boolean not null default true, notes text, created_at timestamp with time zone not null default now(), updated_at timestamp with time zone not null default now()"", ""indexes"": ""CREATE INDEX pos_user_roles_identifier_idx ON public.pos_user_roles USING btree (identifier); CREATE INDEX pos_user_roles_role_idx ON public.pos_user_roles USING btree (role)"", ""constraints"": ""UNIQUE (identifier); PRIMARY KEY (id); CHECK ((role = ANY (ARRAY['admin'::text, 'seller_11'::text, 'seller_sarraj'::text, 'sales_purchase'::text, 'warehouse'::text, 'accountant'::text, 'viewer'::text])))""}"
+table,product_costs,"{""rls"": true, ""columns"": ""code text not null, cost numeric not null"", ""indexes"": """", ""constraints"": ""PRIMARY KEY (code)""}"
+table,staff_roles,"{""rls"": true, ""columns"": ""user_id uuid not null, role text not null"", ""indexes"": """", ""constraints"": ""PRIMARY KEY (user_id); CHECK ((role = ANY (ARRAY['admin'::text, 'seller'::text]))); FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE""}"
+table,web_order_items,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), order_id uuid, product_code text not null, product_name text, quantity numeric default 1, unit_price numeric default 0, line_total numeric default 0, created_at timestamp with time zone default now()"", ""indexes"": """", ""constraints"": ""FOREIGN KEY (order_id) REFERENCES web_orders(id) ON DELETE CASCADE; PRIMARY KEY (id)""}"
+table,web_orders,"{""rls"": true, ""columns"": ""id uuid not null default gen_random_uuid(), order_number text, customer_name text not null, customer_phone text not null, city text, address text, notes text, subtotal numeric default 0, total numeric default 0, status text default 'جديد'::text, created_at timestamp with time zone default now(), updated_at timestamp with time zone default now()"", ""indexes"": """", ""constraints"": ""UNIQUE (order_number); PRIMARY KEY (id)""}"
+table,web_products,"{""rls"": true, ""columns"": ""code text not null, name text, brand text, model text, category text, price numeric default 0, description text, image_paths jsonb default '[]'::jsonb, active boolean default true, sort_order integer default 0, created_at timestamp with time zone default now(), updated_at timestamp with time zone default now(), main_category text, featured boolean default false, cost numeric default 0, thumbnail_paths text[]"", ""indexes"": """", ""constraints"": ""PRIMARY KEY (code)""}"
+trigger,pos_customer_no_trigger,CREATE TRIGGER pos_customer_no_trigger BEFORE INSERT ON pos_customers FOR EACH ROW EXECUTE FUNCTION pos_generate_customer_no()
+trigger,pos_expenses_set_creator_trg,CREATE TRIGGER pos_expenses_set_creator_trg BEFORE INSERT ON pos_expenses FOR EACH ROW EXECUTE FUNCTION pos_expenses_set_creator()
+trigger,pos_products_seller_guard_trg,CREATE TRIGGER pos_products_seller_guard_trg BEFORE UPDATE ON pos_products FOR EACH ROW EXECUTE FUNCTION pos_products_seller_guard()
+trigger,set_pos_sales_invoice_number,CREATE TRIGGER set_pos_sales_invoice_number BEFORE INSERT ON pos_sales FOR EACH ROW EXECUTE FUNCTION trg_pos_sales_invoice_number()
+view,pos_customer_balances," SELECT c.id,
+    c.name,
+    c.phone,
+    c.address,
+    c.notes,
+    c.active,
+    COALESCE(sum(l.debit - l.credit), 0::numeric) AS balance,
+        CASE
+            WHEN COALESCE(sum(l.debit - l.credit), 0::numeric) > 0::numeric THEN 'على العميل'::text
+            WHEN COALESCE(sum(l.debit - l.credit), 0::numeric) < 0::numeric THEN 'للعميل رصيد'::text
+            ELSE 'متوازن'::text
+        END AS balance_status
+   FROM pos_customers c
+     LEFT JOIN pos_customer_ledger l ON l.customer_id = c.id
+  GROUP BY c.id, c.name, c.phone, c.address, c.notes, c.active;"
+view,pos_finance_account_balances," SELECT a.id,
+    a.name,
+    a.account_type,
+    a.location_id,
+    a.bank_name,
+    a.account_no,
+    a.opening_balance,
+    a.active,
+    a.notes,
+    COALESCE(a.opening_balance, 0::numeric) + COALESCE(sum(
+        CASE
+            WHEN m.direction = 'in'::text THEN m.amount
+            ELSE - m.amount
+        END), 0::numeric) AS balance
+   FROM pos_finance_accounts a
+     LEFT JOIN pos_finance_movements m ON m.account_id = a.id
+  GROUP BY a.id, a.name, a.account_type, a.location_id, a.bank_name, a.account_no, a.opening_balance, a.active, a.notes;"
+view,pos_product_stock_summary," SELECT p.code,
+    p.name,
+    p.brand,
+    p.model,
+    p.color,
+    p.barcode,
+    p.category,
+    p.purchase_price,
+    p.retail_price,
+    p.reorder_point,
+    s.name AS supplier_name,
+    COALESCE(sum(st.qty) FILTER (WHERE l.name = 'فرع 11 يونيو'::text), 0::numeric) AS stock_11_june,
+    COALESCE(sum(st.qty) FILTER (WHERE l.name = 'فرع السراج'::text), 0::numeric) AS stock_sarraj,
+    COALESCE(sum(st.qty) FILTER (WHERE l.name = 'مخزن جنزور'::text), 0::numeric) AS stock_janzour,
+    COALESCE(sum(st.qty), 0::numeric) AS total_stock
+   FROM pos_products p
+     LEFT JOIN pos_suppliers s ON s.id = p.supplier_id
+     LEFT JOIN pos_stock st ON st.product_code = p.code
+     LEFT JOIN pos_locations l ON l.id = st.location_id
+  GROUP BY p.code, p.name, p.brand, p.model, p.color, p.barcode, p.category, p.purchase_price, p.retail_price, p.reorder_point, s.name;"
+view,pos_supplier_balances," SELECT s.id,
+    s.name,
+    s.phone,
+    s.address,
+    s.notes,
+    s.active,
+    COALESCE(sum(l.credit - l.debit), 0::numeric) AS balance,
+        CASE
+            WHEN COALESCE(sum(l.credit - l.debit), 0::numeric) > 0::numeric THEN 'علينا للمورد'::text
+            WHEN COALESCE(sum(l.credit - l.debit), 0::numeric) < 0::numeric THEN 'لنا عند المورد'::text
+            ELSE 'متوازن'::text
+        END AS balance_status
+   FROM pos_suppliers s
+     LEFT JOIN pos_supplier_ledger l ON l.supplier_id = s.id
+  GROUP BY s.id, s.name, s.phone, s.address, s.notes, s.active;"
