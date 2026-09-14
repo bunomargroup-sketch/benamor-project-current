@@ -11,13 +11,15 @@
 -- ماذا يستخرج (بترتيب ثابت للتفريع): الجداول بأعمدتها وقيودها وفهارسها
 -- وحالة RLS، والـ views، والدوال بنصها الكامل، وسياسات RLS،
 -- والـ triggers، والتسلسلات.
+-- ⚠ كل تعبيرات العمود name تُحوَّل صراحةً إلى ::text — بدونها يرث العمود نوع
+--   name من pg_catalog (63 بايت) فتُقتطع الأسماء الطويلة في UNION بصمت.
 -- ماذا لا يستخرج عمداً: البيانات، والمنح (GRANTs) — تختلف بين البيئات
 -- بحكم أدوار Supabase — والتعليقات.
 -- ═══════════════════════════════════════════════════════════════════
 
 with objs as (
   -- الجداول: أعمدة + قيود + فهارس (غير المدموجة بقيود) + حالة RLS
-  select 'table' as kind, t.tablename as name,
+  select 'table' as kind, t.tablename::text as name,
     jsonb_build_object(
       'columns', coalesce((
         select string_agg(
@@ -45,7 +47,7 @@ with objs as (
 
   union all
   -- الـ views
-  select 'view', c.relname, pg_get_viewdef(c.oid, true)
+  select 'view', c.relname::text, pg_get_viewdef(c.oid, true)
   from pg_class c
   join pg_namespace n on n.oid = c.relnamespace
   where n.nspname = 'public' and c.relkind = 'v'
@@ -53,7 +55,7 @@ with objs as (
   union all
   -- الدوال بنصها الكامل (pg_get_functiondef يشمل security definer وsearch_path)
   select 'function',
-    p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')',
+    (p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')')::text,
     pg_get_functiondef(p.oid)
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
@@ -61,7 +63,7 @@ with objs as (
 
   union all
   -- سياسات RLS
-  select 'policy', po.tablename || ' / ' || po.policyname,
+  select 'policy', (po.tablename || ' / ' || po.policyname)::text,
     'cmd=' || po.cmd || ' roles=' || array_to_string(po.roles, ',')
     || ' using=' || coalesce(po.qual, '') || ' with_check=' || coalesce(po.with_check, '')
   from pg_policies po
@@ -69,7 +71,7 @@ with objs as (
 
   union all
   -- الـ triggers
-  select 'trigger', tg.tgname, pg_get_triggerdef(tg.oid, true)
+  select 'trigger', tg.tgname::text, pg_get_triggerdef(tg.oid, true)
   from pg_trigger tg
   join pg_class c on c.oid = tg.tgrelid
   join pg_namespace n on n.oid = c.relnamespace
@@ -77,7 +79,7 @@ with objs as (
 
   union all
   -- التسلسلات (أسماء فقط — القيم تختلف بين البيئات بحكم البيانات)
-  select 'sequence', c.relname, 'sequence'
+  select 'sequence', c.relname::text, 'sequence'
   from pg_class c
   join pg_namespace n on n.oid = c.relnamespace
   where n.nspname = 'public' and c.relkind = 'S'
