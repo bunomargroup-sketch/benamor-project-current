@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260914-5';
+const APP_BUILD='b20260914-6';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -424,6 +424,274 @@ function applyReturnLocally(ret, body, items, sale){
   }
 }
 
+/* ═════════════════════ طابور البيع دون اتصال (IndexedDB) ═════════════════════
+   استمرارية البيع عند انقطاع الإنترنت: الفاتورة تُحفظ كاملة على الجهاز مع مفتاح
+   idempotency مولَّد على العميل، وتُرفع تلقائيًا للخادم عند عودة الاتصال
+   (حدث online / فتح التطبيق / كل 60 ثانية) بالترتيب الزمني وبتراجع تصاعدي.
+   الخادم وحده يرقّم الفواتير — العميل لا يولّد رقم فاتورة نهائيًا أبدًا. */
+const OFFLINE_DB_NAME='benamor-pos-offline', OFFLINE_STORE='saleQueue';
+let __offlineDb=null;
+function offlineIdb(){
+  if(__offlineDb) return Promise.resolve(__offlineDb);
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open(OFFLINE_DB_NAME,1);
+    req.onupgradeneeded=e=>{ const db=e.target.result; if(!db.objectStoreNames.contains(OFFLINE_STORE)) db.createObjectStore(OFFLINE_STORE,{keyPath:'key'}); };
+    req.onsuccess=e=>{ __offlineDb=e.target.result; resolve(__offlineDb); };
+    req.onerror=()=>reject(req.error||new Error('IndexedDB غير متاح'));
+  });
+}
+function offQueueOp(mode,fn){
+  return offlineIdb().then(db=>new Promise((resolve,reject)=>{
+    const tx=db.transaction(OFFLINE_STORE,mode);
+    tx.onabort=()=>reject(tx.error||new Error('IndexedDB abort'));
+    tx.onerror=()=>reject(tx.error||new Error('IndexedDB error'));
+    let rq;
+    try{ rq=fn(tx.objectStore(OFFLINE_STORE)); }catch(e){ reject(e); return; }
+    tx.oncomplete=()=>resolve(rq?rq.result:undefined);
+  }));
+}
+const offQueueAll=()=>offQueueOp('readonly',st=>st.getAll()).catch(e=>{console.warn('قراءة طابور دون اتصال فشلت',e);return [];});
+const offQueueGet=key=>offQueueOp('readonly',st=>st.get(key)).catch(()=>null);
+const offQueuePut=entry=>offQueueOp('readwrite',st=>st.put(entry));
+const offQueueDelete=key=>offQueueOp('readwrite',st=>st.delete(key));
+function isNetError(err){
+  const m=String(err&&err.message||err||'');
+  return !navigator.onLine || /Failed to fetch|NetworkError|Load failed|net::|ERR_|NETWORK_TIMEOUT/i.test(m);
+}
+function isAuthError(err){
+  const m=String(err&&err.message||err||'').toLowerCase();
+  return /jwt|session|token|انتهت الجلسة|401/.test(m);
+}
+function withTimeout(promise,ms,label){
+  return new Promise((resolve,reject)=>{
+    const t=setTimeout(()=>reject(new Error(label||'NETWORK_TIMEOUT')),ms);
+    promise.then(v=>{clearTimeout(t);resolve(v);},e=>{clearTimeout(t);reject(e);});
+  });
+}
+async function enqueueOfflineSale(payload,display){
+  const clone=o=>JSON.parse(JSON.stringify(o));
+  const tempId=(crypto?.randomUUID?crypto.randomUUID():('local-'+Date.now()+'-'+Math.random().toString(36).slice(2)));
+  const entry={
+    key:payload.p_idempotency_key,
+    temp_id:tempId,
+    created_at:new Date().toISOString(),
+    attempts:0, next_try_at:0, status:'pending', force:false, error:null,
+    user_identifier:appUser?.identifier||'',
+    branch_id:appUser?.branch_id||payload.p_sale?.location_id||null,
+    payload:clone(payload),
+    display:display||{}
+  };
+  await offQueuePut(entry);
+  return entry;
+}
+function buildSyncPayload(entry){
+  const p={...entry.payload,p_sale:{...entry.payload.p_sale}};
+  p.p_sale.offline_queued=!entry.force; /* فحص المخزون الصارم على الخادم يعمل لطابور دون اتصال فقط */
+  return p;
+}
+async function updateOfflineQueueBadge(){
+  try{
+    const items=await offQueueAll();
+    const pending=items.filter(x=>x.status!=='review').length;
+    const review=items.filter(x=>x.status==='review').length;
+    document.querySelectorAll('#offlineQueuePill').forEach(el=>{
+      if(!pending&&!review){ el.classList.add('hidden'); el.textContent=''; return; }
+      el.classList.remove('hidden');
+      el.classList.toggle('has-review',review>0);
+      el.title='فواتير محفوظة على هذا الجهاز — اضغط للعرض والإدارة';
+      el.textContent=review>0
+        ? `تحتاج مراجعة (${review})${pending?` — بانتظار الاتصال (${pending})`:''}`
+        : `محفوظة محليًا — بانتظار الاتصال (${pending})`;
+    });
+  }catch(e){console.warn('تحديث مؤشر الطابور فشل',e)}
+}
+/* إعادة تطبيق فواتير الطابور محليًا بعد loadAll: تبقى ظاهرة في القوائم ومخصومة من
+   المخزون حتى لا يبيع الكاشير ما نفد، ويصحَّح كل شيء من الخادم عند المزامنة.
+   لا ازدواج خصم: من هو موجود سلفًا في المصفوفات يُتخطى */
+async function reapplyOfflineQueueLocally(){
+  try{
+    const items=await offQueueAll();
+    for(const it of items){
+      if(!it||!it.payload||!it.payload.p_sale) continue;
+      if(sales.some(x=>x.id===it.temp_id)) continue;
+      const body={...it.payload.p_sale};
+      delete body.offline_queued;
+      body.offline_pending=true;
+      applySaleLocally(it.temp_id,body,it.payload.p_items||[],it.payload.p_payments||[]);
+    }
+  }catch(e){console.warn('إعادة تطبيق الطابور فشلت',e)}
+}
+const __finalizingKeys=new Set();
+async function finalizeOfflineSale(entry,serverRow){
+  if(!entry||!serverRow||!serverRow.id) throw new Error('SYNC_OK_NO_ID');
+  if(__finalizingKeys.has(entry.key)) return;
+  __finalizingKeys.add(entry.key);
+  try{
+    const realId=serverRow.id, invoiceNo=serverRow.invoice_no||'', tempId=entry.temp_id;
+    const localSl=sales.find(x=>x.id===tempId);
+    if(localSl){
+      localSl.id=realId;
+      if(invoiceNo) localSl.invoice_no=invoiceNo;
+      delete localSl.offline_pending;
+      ['subtotal','discount','total','paid_amount','balance_due','payment_method','status','created_at','updated_at'].forEach(k=>{ if(serverRow[k]!==undefined&&serverRow[k]!==null) localSl[k]=serverRow[k]; });
+    }
+    saleItems.forEach(x=>{ if(x.sale_id===tempId) x.sale_id=realId; });
+    salePayments.forEach(x=>{ if(x.sale_id===tempId) x.sale_id=realId; });
+    customerLedger.forEach(x=>{ if(x.reference_id===tempId){ x.reference_id=realId; if(invoiceNo&&x.entry_type==='sale') x.description='فاتورة بيع رقم '+invoiceNo; } });
+    financeMovements.forEach(x=>{ if(x.reference_id===tempId){ x.reference_id=realId; } });
+    stockMovements.forEach(x=>{ if(x.reference_id===tempId) x.reference_id=realId; });
+    await offQueueDelete(entry.key); /* لا تُحذف من الطابور إلا بعد تأكيد نجاحها من الخادم */
+    logAction('sale_offline_sync','pos_sales',realId,`مزامنة فاتورة كانت محلية ${invoiceNo||realId.slice(0,8)} - ${money(serverRow.total)} ${APP_CONFIG.currency} - أنشأها ${entry.user_identifier||''}`);
+  }finally{ __finalizingKeys.delete(entry.key); }
+}
+/* حذف إداري لفاتورة رفضها الخادم (لم تُسجَّل قط — الـ RPC ذرّي): إرجاع المخزون المخصوم محليًا وإزالة كل آثارها */
+function removeOfflineSaleLocally(entry){
+  const tempId=entry.temp_id, body=entry.payload?.p_sale||{};
+  if(sales.some(x=>x.id===tempId)){
+    (entry.payload?.p_items||[]).forEach(it=>localAdjustStockForSaleItem(body.location_id,it,1,'adjustment','pos_offline_queue',tempId,'إلغاء فاتورة محلية مرفوضة من الخادم'));
+  }
+  for(let i=sales.length-1;i>=0;i--) if(sales[i].id===tempId) sales.splice(i,1);
+  for(let i=saleItems.length-1;i>=0;i--) if(saleItems[i].sale_id===tempId) saleItems.splice(i,1);
+  for(let i=salePayments.length-1;i>=0;i--) if(salePayments[i].sale_id===tempId) salePayments.splice(i,1);
+  for(let i=customerLedger.length-1;i>=0;i--) if(customerLedger[i].reference_id===tempId){
+    const e=customerLedger[i];
+    if(e.entry_type==='sale'&&Number(e.debit||0)>0){ const c=customers.find(x=>x.id===e.customer_id); if(c) c.balance=Number(c.balance||0)-Number(e.debit); }
+    customerLedger.splice(i,1);
+  }
+  for(let i=financeMovements.length-1;i>=0;i--) if(financeMovements[i].reference_id===tempId){
+    const m=financeMovements[i]; const acc=financeAccounts.find(a=>a.id===m.account_id);
+    if(acc) acc.balance=Number(acc.balance||0)+(m.direction==='in'?-Number(m.amount):Number(m.amount));
+    financeMovements.splice(i,1);
+  }
+}
+let __offlineSyncing=false;
+async function syncOfflineQueue(){
+  if(__offlineSyncing) return;
+  if(!appUser?.id||!authSession?.access_token) return;
+  if(!navigator.onLine) return;
+  __offlineSyncing=true;
+  let synced=0, reviewCount=0;
+  try{
+    const items=(await offQueueAll()).filter(x=>x&&x.payload&&x.payload.p_sale).sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||'')));
+    for(const it of items){
+      if(it.status==='review') continue;                                                          /* تنتظر قرار المدير */
+      if(!(it.user_identifier===appUser?.identifier||currentRole?.role==='admin')) continue;      /* طابور غيري لا يُرفع بجلستي — صاحبها أو المدير */
+      if(Number(it.next_try_at||0)>Date.now()) continue;                                          /* تراجع تصاعدي */
+      let res=null;
+      try{
+        res=await withTimeout(rpc('post_sale_transaction',buildSyncPayload(it)),25000,'NETWORK_TIMEOUT');
+      }catch(err){
+        if(isAuthError(err)) break;                                                               /* الجلسة منتهية — بعد إعادة الدخول */
+        if(isNetError(err)){
+          it.attempts=(Number(it.attempts)||0)+1;
+          it.next_try_at=Date.now()+Math.min(60000*Math.pow(2,Math.max(0,it.attempts-1)),15*60000);
+          await offQueuePut(it).catch(console.warn);
+          break;                                                                                  /* الشبكة ذهبت — توقف عن الباقي */
+        }
+        it.status='review'; it.error=friendlyError(err); it.attempts=(Number(it.attempts)||0)+1;
+        await offQueuePut(it).catch(console.warn);
+        reviewCount++;
+        continue;
+      }
+      await finalizeOfflineSale(it,res);
+      synced++;
+    }
+  }catch(e){ console.warn('خطأ مزامنة الطابور المحلي',e); }
+  finally{ __offlineSyncing=false; }
+  if(synced||reviewCount){
+    try{ buildProductCostIndex(); }catch(e){}
+    renderAll();
+    if(products.length){ try{saveEssentialCache();}catch(e){} } /* لا تُمسح الذخيرة المحلية إن كانت المصفوفات فارغة (قبل loadAll) */
+    updateOfflineQueueBadge();
+    if(synced) toast(`تم رفع ${synced} فاتورة محلية إلى الخادم${reviewCount?` — و${reviewCount} تحتاج مراجعة`:''}`,'success');
+    else toast(reviewCount+' فاتورة رفضها الخادم — تحتاج مراجعة (اضغط مؤشر الطابور أعلى الشاشة)','warn');
+  }
+}
+/* انقطع الاتصال أثناء حفظ فاتورة جديدة: طابور محلي + مرآة كاملة + طباعة فورية — البيع لا يتوقف */
+async function saveSaleOfflineQueued(rpcPromise,payload,body,items,paymentsForRpc){
+  const cust=customers.find(x=>x.id===body.customer_id);
+  const entry=await enqueueOfflineSale(payload,{total:body.total,customer_name:cust?.name||'زبون نقدي',sale_date:body.sale_date,location_id:body.location_id,items_count:items.length});
+  clearDraftKey('sale'); /* ضروري: حتى لا يتشارك مفتاح idempotency مع الفاتورة التالية */
+  clearActiveSaleDraft();
+  logAction('sale_offline_queue','pos_offline_queue',entry.temp_id,`فاتورة محلية بانتظار الاتصال - ${money(body.total)} ${APP_CONFIG.currency}`);
+  const shouldPrint=q('salePrintAfterSave').value==='yes'; const mode=saleSaveMode||'new';
+  closeSalePaymentScreen(); resetSaleForm();
+  applySaleLocally(entry.temp_id,{...body,offline_pending:true},items,paymentsForRpc);
+  refreshAfterLocalUpdate(); updateOfflineQueueBadge();
+  toast('حُفظت محليًا — ستُرفع تلقائيًا عند عودة الاتصال','success');
+  if(shouldPrint) setTimeout(()=>printSale(entry.temp_id),300);
+  if(mode==='close') openTab('salesList');
+  saleSaveMode='new';
+  /* إن وصلت استجابة الخادم متأخرة بعد مهلة الانتظار — اعتمدها فورًا (مفتاح idempotency يمنع الازدواج) */
+  rpcPromise.then(res=>{
+    if(res&&res.id) offQueueGet(payload.p_idempotency_key).then(ent=>{
+      if(ent&&ent.status!=='review') finalizeOfflineSale(ent,res).then(()=>{refreshAfterLocalUpdate();updateOfflineQueueBadge();toast('وصلت فاتورة محلية إلى الخادم ✓','success');}).catch(console.warn);
+    }).catch(()=>{});
+  }).catch(()=>{});
+}
+async function openOfflineQueueModal(){ q('offlineQueueModal')?.classList.add('show'); await renderOfflineQueueModal(); }
+async function renderOfflineQueueModal(){
+  const body=q('offlineQueueBody'); if(!body) return;
+  const items=(await offQueueAll()).filter(x=>x&&x.payload).sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||'')));
+  if(!items.length){ body.innerHTML='<div class="mini" style="padding:16px;text-align:center">لا توجد فواتير محلية — كل شيء متزامن ✓</div>'; return; }
+  const isAdmin=currentRole?.role==='admin';
+  body.innerHTML=items.map(it=>{
+    const review=it.status==='review'; const d=it.display||{};
+    const itemsTxt=(it.payload.p_items||[]).map(x=>esc(x.product_code)+' ×'+money(x.qty)).join('، ');
+    const k=String(it.key||'').replace(/'/g,"\\'"); const t=String(it.temp_id||'').replace(/'/g,"\\'");
+    return `<div class="card" style="margin-bottom:10px;border-inline-start:4px solid ${review?'var(--bad)':'var(--warn)'}">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap">
+        <div style="min-width:220px">
+          <b>${review?'⚠ تحتاج مراجعة — رفضها الخادم':'⏳ بانتظار الاتصال'}</b>
+          <div class="mini" style="margin-top:3px">${esc(d.sale_date||'')} — ${esc(d.customer_name||'زبون نقدي')} — <b>${money(d.total)} ${APP_CONFIG.currency}</b> — ${d.items_count||0} صنف</div>
+          <div class="mini ltr" style="margin-top:3px">${itemsTxt}</div>
+          ${review?`<div class="mini" style="margin-top:6px;color:var(--bad)"><b>سبب الرفض:</b> ${esc(it.error||'')}${/INSUFFICIENT/i.test(String(it.error||''))?'<br>بيعت الكمية من جهاز آخر أثناء الانقطاع — القرار: إعادة إرسال مع تجاوز فحص المخزون، أو حذف نهائي.':''}</div>`:''}
+          <div class="mini" style="margin-top:4px;opacity:.75">أنشأها: ${esc(it.user_identifier||'')} — ${esc(String(it.created_at||'').replace('T',' ').slice(0,16))}${Number(it.attempts||0)?' — محاولات: '+it.attempts:''}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn secondary" type="button" onclick="printSale('${t}')">طباعة</button>
+          ${review
+            ?(isAdmin?`<button class="btn" type="button" onclick="offlineQueueForceRetry('${k}')">إعادة إرسال (تجاوز فحص المخزون)</button><button class="btn danger" type="button" onclick="offlineQueueDelete('${k}')">حذف نهائي</button>`:'<span class="mini">انتظار قرار المدير</span>')
+            :`<button class="btn" type="button" onclick="offlineQueueSyncNow('${k}')">مزامنة الآن</button>`}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+async function offlineQueueSyncNow(key){
+  const it=await offQueueGet(key); if(!it) return;
+  it.next_try_at=0; await offQueuePut(it);
+  await syncOfflineQueue();
+  await renderOfflineQueueModal(); updateOfflineQueueBadge();
+}
+async function offlineQueueForceRetry(key){
+  if(currentRole?.role!=='admin'){toast('هذه الخطوة للمدير فقط','warn');return;}
+  const it=await offQueueGet(key); if(!it) return;
+  if(!confirm('إعادة إرسال الفاتورة مع تجاوز فحص المخزون؟\nسيُسمح للكمية بالنزول تحت الصفر إن لزم (قرار إداري يُسجَّل في سجل التدقيق).'))return;
+  it.status='pending'; it.force=true; it.error=null; it.next_try_at=0;
+  await offQueuePut(it);
+  logAction('offline_sale_force_retry','pos_offline_queue',it.temp_id,'إعادة إرسال إدارية مع تجاوز فحص المخزون');
+  await syncOfflineQueue();
+  await renderOfflineQueueModal(); updateOfflineQueueBadge();
+}
+async function offlineQueueDelete(key){
+  if(currentRole?.role!=='admin'){toast('الحذف للمدير فقط','warn');return;}
+  const it=await offQueueGet(key); if(!it) return;
+  if(it.status!=='review'){toast('لا يمكن حذف فاتورة لم يرفضها الخادم — قد تكون وصلت بالفعل','warn');return;}
+  const d=it.display||{};
+  if(!confirm(`حذف نهائي للفاتورة المحلية (${money(d.total)} ${APP_CONFIG.currency} — ${d.customer_name||'زبون نقدي'})؟\nالخادم رفضها ولم تُسجَّل في قاعدة البيانات. سيُعاد المخزون المخصوم محليًا.`))return;
+  removeOfflineSaleLocally(it);
+  await offQueueDelete(it.key);
+  logAction('offline_sale_delete','pos_offline_queue',it.temp_id,`حذف فاتورة محلية رفضها الخادم (${it.error||''}) - ${money(d.total)} ${APP_CONFIG.currency}`);
+  refreshAfterLocalUpdate(); updateOfflineQueueBadge(); await renderOfflineQueueModal();
+  toast('تم حذف الفاتورة المحلية وإرجاع المخزون المحلي','success');
+}
+function initOfflineQueue(){
+  window.addEventListener('online',()=>{ setTimeout(()=>{ syncOfflineQueue().catch(console.warn); },400); });
+  setInterval(()=>{ if(navigator.onLine) syncOfflineQueue().catch(console.warn); },60000);
+  updateOfflineQueueBadge().catch(()=>{});
+}
+
 async function loadAll(){
   // نوافذ زمنية للعرض فقط (90 يوماً للقيود) — الكشوف التاريخية تُجلب عند الطلب من openCustomerLedger/openLedger
   // ⚠️ sales/saleItems/purchases/purchaseItems تبقى كاملة: محرك التكلفة (المتوسط المتحرك) يحتاج كل التاريخ
@@ -465,8 +733,9 @@ async function loadAll(){
       apiAll('pos_composite_items','?select=*&order=created_at.asc').catch(e=>{console.warn('composite items not setup yet',e); return []})
     ]);
     ['productCategoryFilter','productBrandFilter','productColorFilter','productSupplierFilter','stockCategoryFilter','stockBrandFilter','stockSupplierFilter'].forEach(id=>{if(q(id)) q(id).dataset.ready='';});
+    await reapplyOfflineQueueLocally(); /* فواتير الطابور المحلي تبقى ظاهرة ومخصومة من المخزون بعد أي تحديث من الخادم */
     buildProductCostIndex(); buildProductSearchIndex(); renderAll(); saveEssentialCache(); setSyncState('online','متصل - تم تحديث البيانات'); gDriveMaybeAuto();
-  }catch(e){ console.error(e); const used=applyEssentialCache(loadEssentialCache()); if(used) toast('الاتصال ضعيف: تم استعمال آخر بيانات محفوظة','warn'); else toast('خطأ: '+e.message+' - لا توجد بيانات محفوظة محليًا'); }
+  }catch(e){ console.error(e); const used=applyEssentialCache(loadEssentialCache()); if(used) toast('الاتصال ضعيف: تم استعمال آخر بيانات محفوظة','warn'); else toast('خطأ: '+e.message+' - لا توجد بيانات محفوظة محليًا'); reapplyOfflineQueueLocally().then(()=>{try{renderAll()}catch(_e){}}).catch(()=>{}); }
   finally{showLoading(false);window.__busy=false}
 }
 
@@ -596,6 +865,7 @@ async function loginPOS(create=false){
     appUser={id:user.id,identifier,branch_id:loc.id,branch_name:loc.name}; localStorage.setItem('posUser',JSON.stringify(appUser));
     await ensureRoleAfterLogin(); updateAuthUI(); applyPermissions(); renderStatusBar(); renderCustomers(); toast(create?'تم إنشاء المستخدم والدخول':'تم الدخول','success');
     notifyAdminOfSellerEdits();
+    syncOfflineQueue().catch(console.warn); updateOfflineQueueBadge(); /* ارفع طابور هذا الجهاز فور الدخول */
   }catch(err){
     console.error(err);
     if(err&&err.isAuthError){toast('المعرّف أو الكود غير صحيح','error'); setLoginMessage('المعرّف أو الكود غير صحيح — تأكد من اسم المستخدم والكود ('+friendlyError(err)+')','error');}
@@ -1752,7 +2022,7 @@ function renderSales(){
   q('salesBody').innerHTML = rows.map(sl=>{
     const l=locations.find(x=>x.id===sl.location_id); const c=customers.find(x=>x.id===sl.customer_id); const safe=String(sl.id).replace(/'/g,"\'"); const st=salePaymentStatus(sl);
     const badge=st==='paid'?'<span class="badge green">مدفوعة</span>':(st==='partial'?'<span class="badge yellow">مدفوعة جزئيًا</span>':'<span class="badge red">غير مدفوعة</span>');
-    return `<tr class="${selectedSaleId===sl.id?'selected-row':''}" onclick="selectSaleRow('${safe}')"><td class="ltr"><b>${esc(sl.invoice_no||sl.id.slice(0,8))}</b></td><td>${esc(sl.sale_date)}</td><td>${esc(l?.name)}</td><td>${esc(c?.name||'زبون نقدي')}<div class="mini ltr">${esc(c?.phone||'')}</div></td><td>${badge}<div class="mini">${esc(typeLabel(sl.payment_method))} — ${esc(paymentBreakdownText(salePayments.filter(p=>p.sale_id===sl.id)))}</div></td><td><b>${money(sl.total)}</b></td><td>${money(sl.paid_amount)}</td><td class="${Number(sl.balance_due)>0?'stock-negative':''}"><b>${money(sl.balance_due)}</b></td></tr>`;
+    return `<tr class="${selectedSaleId===sl.id?'selected-row':''}" onclick="selectSaleRow('${safe}')"><td class="ltr"><b>${esc(sl.invoice_no||sl.id.slice(0,8))}</b>${sl.offline_pending?' <span class="badge yellow">محلية</span>':''}</td><td>${esc(sl.sale_date)}</td><td>${esc(l?.name)}</td><td>${esc(c?.name||'زبون نقدي')}<div class="mini ltr">${esc(c?.phone||'')}</div></td><td>${badge}<div class="mini">${esc(typeLabel(sl.payment_method))} — ${esc(paymentBreakdownText(salePayments.filter(p=>p.sale_id===sl.id)))}</div></td><td><b>${money(sl.total)}</b></td><td>${money(sl.paid_amount)}</td><td class="${Number(sl.balance_due)>0?'stock-negative':''}"><b>${money(sl.balance_due)}</b></td></tr>`;
   }).join('') || '<tr><td colspan="8">لا توجد فواتير مطابقة. غيّر البحث أو الفلاتر.</td></tr>';
   const totalDue=rows.reduce((a,x)=>a+Math.max(0,Number(x.balance_due||0)),0);
   const sl=selectedSaleId?sales.find(x=>x.id===selectedSaleId):null;
@@ -2121,6 +2391,7 @@ function resetSaleForm(){
 }
 async function openSaleForEdit(id){
   const role=currentRole?.role;
+  if(sales.find(x=>x.id===id)?.offline_pending){toast('فاتورة محلية بانتظار المزامنة — تصبح قابلة للتعديل بعد وصولها للخادم','warn');return;}
   if(!['admin','sales_purchase','seller_11','seller_sarraj'].includes(role)){toast('تعديل الفواتير للمدير وموظف البيع والشراء — للتصحيح استعمل المرتجع','warn');return;}
   if(role==='seller_11'||role==='seller_sarraj'){
     const sl=sales.find(x=>x.id===id);
@@ -2191,14 +2462,16 @@ function closePrintPreview(){
 
 async function printSale(id){
   try{
-    const sl=sales.find(x=>x.id===id) || (await api('pos_sales',{qs:`?select=*&id=eq.${id}&limit=1`}))[0];
-    const items=await api('pos_sale_items',{qs:`?select=*&sale_id=eq.${id}&order=created_at.asc`});
+    const localSl=sales.find(x=>x.id===id);
+    const offlinePrint=!navigator.onLine || localSl?.offline_pending; /* الطباعة تعمل دون إنترنت من البيانات المحلية */
+    const sl=localSl || (await api('pos_sales',{qs:`?select=*&id=eq.${id}&limit=1`}))[0];
+    const items=offlinePrint? saleItems.filter(x=>x.sale_id===id) : await api('pos_sale_items',{qs:`?select=*&sale_id=eq.${id}&order=created_at.asc`});
     const payRows=salePayments.filter(p=>p.sale_id===id);
     const loc=locations.find(x=>x.id===sl.location_id); const cust=customers.find(x=>x.id===sl.customer_id);
     const itemCount=items.reduce((a,it)=>a+Number(it.qty||0),0);
     const subtotal=items.reduce((a,it)=>a+Number(it.line_total||0),0);
     const paid=Number(sl.paid_amount||0), balance=Number(sl.balance_due||0);
-    const badge=balance>0?'<span class="badge due">آجل / متبقٍ</span>':'<span class="badge paid">مدفوعة بالكامل</span>'; const dp=String(sl.sale_date||'').split('-'); const dateDisp=(dp.length===3)?(dp[2]+'-'+dp[1]+'-'+dp[0]):String(sl.sale_date||'');
+    const badge=balance>0?'<span class="badge due">آجل / متبقٍ</span>':'<span class="badge paid">مدفوعة بالكامل</span>'; const offlineBadge=sl.offline_pending?'<div style="margin-top:8px"><span style="display:inline-block;border-radius:6px;padding:4px 11px;font-size:12.5px;font-weight:700;background:#fffbeb;color:#b45309;border:1px solid #fde68a">نسخة محلية — يُرقَّم عند المزامنة</span></div>':''; const dp=String(sl.sale_date||'').split('-'); const dateDisp=(dp.length===3)?(dp[2]+'-'+dp[1]+'-'+dp[0]):String(sl.sale_date||'');
     const rows=items.map((it,i)=>{const comps=compositeItems.filter(ci=>ci.composite_code===it.product_code); return `<tr><td class="n">${i+1}</td><td class="code ltr">${esc(it.product_code)}</td><td class="name">${esc(it.product_name)}${comps.length?('<div class="sub2 ltr">'+comps.map(ci=>esc(ci.component_code)+'×'+Number(ci.qty||1)).join(' · ')+'</div>'):''}</td><td class="n">${money(it.qty)}</td><td class="n">${money(it.unit_price)}</td><td class="n">${money(it.line_discount||0)}</td><td class="n ttl">${money(it.line_total)}</td></tr>`;}).join('');
     const html=`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>فاتورة بيع ${esc(sl.invoice_no||sl.id.slice(0,8))}</title><style>
 @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
@@ -2278,9 +2551,9 @@ table.items{width:100%;border-collapse:collapse;margin:0 0 18px}
     <div class="brand"><h1>${esc(APP_CONFIG.businessName)}</h1><div class="sub">${esc(APP_CONFIG.tagline)}</div></div>
     <div class="doc">
       <div class="title">فاتورة بيع</div>
-      <div class="invno">${esc(sl.invoice_no||sl.id.slice(0,8))}</div>
+      <div class="invno">${sl.offline_pending?'<span style="color:#b45309">محلية — بانتظار المزامنة</span>':esc(sl.invoice_no||sl.id.slice(0,8))}</div>
       <div class="date">${esc(dateDisp)}</div>
-      ${badge}
+      ${badge}${offlineBadge}
     </div>
   </div>
   <div class="brandline"></div>
@@ -2424,6 +2697,7 @@ table.items{width:100%;border-collapse:collapse;margin:0 0 18px}
 async function deleteSale(id){
   if(currentRole?.role!=='admin'){toast('حذف الفواتير للمدير فقط','warn');return;}
   const sl=sales.find(x=>x.id===id); if(!sl){toast('لم يتم العثور على الفاتورة','warn');return;}
+  if(sl.offline_pending){toast('فاتورة محلية بانتظار المزامنة — أدِرها من مؤشر الطابور أعلى الشاشة','warn');return;}
   const inv=sl.invoice_no||String(id).slice(0,8);
   const cust=customers.find(x=>x.id===sl.customer_id);
   if(!confirm(`حذف نهائي لفاتورة البيع رقم ${inv}؟\nالتاريخ: ${sl.sale_date} — الإجمالي: ${money(sl.total)} ${APP_CONFIG.currency} — الزبون: ${cust?.name||'زبون نقدي'}\nسيتم إرجاع المخزون وإلغاء كل آثارها المالية. لا يمكن التراجع.`))return;
@@ -2823,6 +3097,7 @@ function calcCopyToPrice(){calcEquals(); const tr=currentSaleLine(); const inp=t
 
 function closeSaleReturnModal(){q('saleReturnModal').classList.remove('show')}
 async function openSaleReturn(id){
+  if(sales.find(x=>x.id===id)?.offline_pending){toast('فاتورة محلية بانتظار المزامنة — المرتجع متاح بعد وصولها للخادم','warn');return;}
   try{
     showLoading(true);
     returningSale=sales.find(x=>x.id===id) || (await api('pos_sales',{qs:`?select=*&id=eq.${id}&limit=1`}))[0];
@@ -3174,13 +3449,25 @@ q('saleForm').addEventListener('submit', async e=>{
   if(oversold.length && !confirm('تنبيه: توجد منتجات كميتها غير كافية. هل تريد البيع بدون مخزون؟\n'+oversold.join('\n'))){window.__busy=false; document.querySelectorAll('#salePaymentScreen .btn,.pos-mini-keypad .enter').forEach(b=>b.disabled=false); return;}
   try{
     showLoading(true);
+    if(!navigator.onLine && !q('saleCustomer').value && q('saleNewCustomerName').value.trim() && !matchExistingCustomerByPhone(q('saleNewCustomerPhone').value.trim())){
+      toast('لا يمكن إنشاء زبون جديد دون اتصال — اختر زبونًا مسجلًا أو أكمل البيع نقديًا','warn');
+      window.__busy=false; document.querySelectorAll('#salePaymentScreen .btn,.pos-mini-keypad .enter').forEach(b=>b.disabled=false); return;
+    }
     const customer_id=await ensureSaleCustomer(balance_due);
     const invoice_no=editingSaleId ? q('saleInvoiceNo').value.trim() : null; const body={invoice_no,sale_date:q('saleDate').value,location_id,customer_id,payment_method:detectSalePaymentMethod(balance_due),subtotal,discount,total,paid_amount:paid,balance_due,status:'posted',notes:q('saleNotes').value.trim()};
     let saleId=editingSaleId;
     if(!editingSaleId){
       const paymentsForRpc=payRows.map(r=>({...r,account_id:defaultAccountFor(r.payment_method,location_id),notes:''}));
       const idem=getDraftKey('sale');
-      const saved=await rpc('post_sale_transaction',{p_sale:body,p_items:items,p_payments:paymentsForRpc,p_idempotency_key:idem,p_user_identifier:appUser?.identifier||''});
+      const payload={p_sale:body,p_items:items,p_payments:paymentsForRpc,p_idempotency_key:idem,p_user_identifier:appUser?.identifier||''};
+      const saleRpcPromise=rpc('post_sale_transaction',payload);
+      let saved;
+      try{ saved=await withTimeout(saleRpcPromise,20000,'NETWORK_TIMEOUT'); }
+      catch(rpcErr){
+        if(!isNetError(rpcErr)) throw rpcErr;
+        await saveSaleOfflineQueued(saleRpcPromise,payload,body,items,paymentsForRpc); /* انقطع الاتصال: طابور محلي بدل إيقاف البيع */
+        return;
+      }
       saleId=saved.id; body.invoice_no=saved.invoice_no||body.invoice_no; q('saleInvoiceNo').value=body.invoice_no||'';
       if(sourcePriceCheckerCartId){await rpc('mark_pricechecker_cart_converted',{p_cart_id:sourcePriceCheckerCartId}).catch(console.warn); sourcePriceCheckerCartId=null;}
       clearDraftKey('sale'); clearActiveSaleDraft();
@@ -4574,4 +4861,4 @@ function renderComposites(){
 }
 
 function setToday(){const d=new Date().toISOString().slice(0,10); q('paymentDate').value=d; q('purchaseDate').value=d; q('transferDate').value=d; q('saleDate').value=d; if(q('proformaDate')) q('proformaDate').value=d; q('customerPaymentDate').value=d; if(q('dailyCashDateFrom')) q('dailyCashDateFrom').value=d; if(q('dailyCashDateTo')) q('dailyCashDateTo').value=d; if(q('expenseLocation')&&appUser?.branch_id&&!q('expenseLocation').value) q('expenseLocation').value=appUser.branch_id; ['financeTransferDate','expenseDate','salaryPaymentDate'].forEach(id=>{if(q(id))q(id).value=d}); if(q('reportTo')) q('reportTo').value=d; if(q('reportFrom') && !q('reportFrom').value){const first=new Date(); first.setDate(1); q('reportFrom').value=first.toISOString().slice(0,10)}}
-initBranding(); fillSettingsForm(); initConnectivity(); initNavGroups(); setupDecimalInputs(); setupSaleTabFlow(); setupLongPickers(); setTimeout(toggleFinancePaymentMethods,0); setToday(); q('saleLocation')?.addEventListener('change',function(){ if(this.value) localStorage.setItem('posLastSaleLocation',this.value); }); try{if(localStorage.getItem('posNavCollapsed')==='1') document.body.classList.add('nav-collapsed');}catch(e){} renderStatusBar(); renderGDriveStatus(); addTransferRow(); if(q('proformaItemsBody')) addProformaRow(); ensureSaleInvoiceNo(true); updateAuthUI(); loadLoginBranches(); setTimeout(tryRestoreActiveSaleDraft,600); if(appUser?.id && authSession?.access_token){loadAll().then(async()=>{await ensureRoleAfterLogin(); updateAuthUI(); applyPermissions(); renderCustomers(); notifyAdminOfSellerEdits();}).catch(e=>{console.error(e); logoutPOS(); toast('انتهت الجلسة، سجل الدخول مرة أخرى','warn')});}else{q('loginIdentifier')?.focus();}
+initBranding(); fillSettingsForm(); initConnectivity(); initOfflineQueue(); initNavGroups(); setupDecimalInputs(); setupSaleTabFlow(); setupLongPickers(); setTimeout(toggleFinancePaymentMethods,0); setToday(); q('saleLocation')?.addEventListener('change',function(){ if(this.value) localStorage.setItem('posLastSaleLocation',this.value); }); try{if(localStorage.getItem('posNavCollapsed')==='1') document.body.classList.add('nav-collapsed');}catch(e){} renderStatusBar(); renderGDriveStatus(); addTransferRow(); if(q('proformaItemsBody')) addProformaRow(); ensureSaleInvoiceNo(true); updateAuthUI(); loadLoginBranches(); setTimeout(tryRestoreActiveSaleDraft,600); if(appUser?.id && authSession?.access_token){syncOfflineQueue().catch(e=>console.warn('offline queue sync',e)).finally(()=>{loadAll().then(async()=>{await ensureRoleAfterLogin(); updateAuthUI(); applyPermissions(); renderCustomers(); notifyAdminOfSellerEdits();}).catch(e=>{console.error(e); logoutPOS(); toast('انتهت الجلسة، سجل الدخول مرة أخرى','warn')});});}else{q('loginIdentifier')?.focus();}

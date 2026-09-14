@@ -25,7 +25,7 @@
   <header>
     <div class="top">
       <div class="brand"><h1 id="brandTitle">نظام البيع والمخزون</h1><p id="brandTagline">نظام بيع ومخزون</p></div>
-      <div class="row"><button class="icon-btn" type="button" aria-label="المساعدة والاختصارات" title="الاختصارات" onclick="q('shortcutsModal').classList.add('show')"><i class="ti ti-help-circle"></i></button><button class="icon-btn" id="navToggle" aria-label="إظهار/إخفاء القائمة" type="button" onclick="toggleNav()" title="إظهار/إخفاء القائمة"><i class="ti ti-menu-2"></i></button><button class="icon-btn" id="themeToggle" type="button" aria-label="تبديل الوضع" onclick="toggleTheme()" title="تبديل الوضع"><i class="ti ti-moon"></i></button><div class="pill" id="syncState">جاهز للمزامنة مع Supabase</div><div class="pill hidden" id="userPill"><span id="userLabel"></span> <button class="btn secondary" style="padding:6px 10px" onclick="logoutPOS()">خروج</button></div></div>
+      <div class="row"><button class="icon-btn" type="button" aria-label="المساعدة والاختصارات" title="الاختصارات" onclick="q('shortcutsModal').classList.add('show')"><i class="ti ti-help-circle"></i></button><button class="icon-btn" id="navToggle" aria-label="إظهار/إخفاء القائمة" type="button" onclick="toggleNav()" title="إظهار/إخفاء القائمة"><i class="ti ti-menu-2"></i></button><button class="icon-btn" id="themeToggle" type="button" aria-label="تبديل الوضع" onclick="toggleTheme()" title="تبديل الوضع"><i class="ti ti-moon"></i></button><div class="pill" id="syncState">جاهز للمزامنة مع Supabase</div><button class="pill offline-queue-pill hidden" id="offlineQueuePill" type="button" onclick="openOfflineQueueModal()" aria-label="فواتير محفوظة محليًا"></button><div class="pill hidden" id="userPill"><span id="userLabel"></span> <button class="btn secondary" style="padding:6px 10px" onclick="logoutPOS()">خروج</button></div></div>
     </div>
   </header>
 
@@ -935,6 +935,12 @@
         <div class="row"><button class="btn" id="loginBtn" onclick="loginPOS(false)">دخول</button></div>
         <div id="loginHelp">اختر الفرع ثم اكتب المعرّف والكود للدخول.</div>
       </div>
+    </div>
+  </div>
+  <div class="modal" id="offlineQueueModal">
+    <div class="modal-card" style="max-width:680px">
+      <div class="modal-head"><div><h2 style="margin:0">فواتير محلية دون اتصال</h2><div class="mini">محفوظة على هذا الجهاز — تُرفع تلقائيًا للخادم عند عودة الاتصال (الخادم يرقّمها). الفواتير المرفوضة تحتاج قرار المدير.</div></div><button class="btn secondary" type="button" onclick="q('offlineQueueModal').classList.remove('show')">إغلاق</button></div>
+      <div id="offlineQueueBody"></div>
     </div>
   </div>
   <div class="modal" id="shortcutsModal">
