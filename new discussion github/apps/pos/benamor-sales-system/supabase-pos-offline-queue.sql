@@ -123,10 +123,10 @@ begin
 
   insert into public.pos_sales(
     invoice_no, sale_date, location_id, customer_id, payment_method,
-    subtotal, discount, total, paid_amount, balance_due, status, notes, idempotency_key
+    subtotal, discount, total, paid_amount, balance_due, status, notes, idempotency_key, created_by
   ) values (
     nullif(p_sale->>'invoice_no',''), v_sale_date, v_location, v_customer, v_method,
-    v_subtotal, v_discount, v_total, v_paid_signed, v_balance_due, 'posted', nullif(p_sale->>'notes',''), nullif(p_idempotency_key,'')
+    v_subtotal, v_discount, v_total, v_paid_signed, v_balance_due, 'posted', nullif(p_sale->>'notes',''), nullif(p_idempotency_key,''), nullif(p_user_identifier,'')
   ) returning * into v_sale;
 
   for v_item in select * from jsonb_array_elements(p_items) loop

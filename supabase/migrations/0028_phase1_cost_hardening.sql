@@ -1,29 +1,22 @@
--- ===================================================================
--- Benamor POS — حارس المخزون لطابور البيع دون اتصال (Offline Queue Guard)
---
--- الغرض:
---   الفاتورة التي حُفظت محليًا على جهاز الكاشير أثناء انقطاع الإنترنت
---   تُرفع لاحقًا مع العلامة offline_queued=true داخل p_sale.
---   عند مزامنتها يفحص الخادم المخزون الفعلي الحالي:
---     - إن كانت الكمية كافية ⇒ تُسجَّل طبيعيًا.
---     - إن كانت غير كافية (بيعت من جهاز آخر أثناء الانقطاع) ⇒ تُرفض
---       برسالة INSUFFICIENT_STOCK_QUEUED وتبقى في قائمة «تحتاج مراجعة»
---       على جهاز الكاشير حتى يقرر المدير: إعادة إرسال مع تجاوز الفحص
---       (يسمح بالسالب — قرار إداري) أو حذفها نهائيًا.
---
---   ⚠ البيع التفاعلي المباشر (أونلاين) لا يتغير: تأكيد المستخدم في
---     الواجهة يكفي، والكمية تنزل سالبة إن لزم — كما هو معمول به الآن.
---
--- هذا الملف يعيد تعريف post_sale_transaction بالنسخة الكاملة الأحدث
--- (المكوّنات المركّبة + snapshot التكلفة unit_cost_at_sale) مع إضافة
--- الحارس فقط. شغّله بعد كل ملفات SQL السابقة. آمن لإعادة التشغيل.
---
--- ⚠ شغّل هذا الملف في Supabase SQL Editor قبل رفع واجهة app.js الجديدة
---   (الواجهة الجديدة تعمل أيضًا بدون هذا الملف — لكن دون حارس المخزون
---   ستُرفع الفواتير المتعارضة بكمية سالبة بدل رفضها للمراجعة).
--- ===================================================================
+-- ═══ 0028 — تحصين التكلفة والمرتجعات
+-- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-phase1-cost-and-return-hardening.sql
+-- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
+
+-- Benamor POS - Phase 1: historical cost snapshot + block unlinked negative sale lines
+-- Run after post_sale_transaction SQL. This replaces post_sale_transaction with unit_cost_at_sale support
+-- and rejects negative sale item quantities. Returns should use post_sale_return_transaction.
 
 begin;
+
+alter table if exists public.pos_sale_items
+  add column if not exists unit_cost_at_sale numeric not null default 0;
+
+-- Keep qty <> 0 for legacy data compatibility, but RPC below rejects negative qty for new normal sales.
+alter table if exists public.pos_sale_items
+  drop constraint if exists pos_sale_items_unit_cost_at_sale_check;
+
+alter table if exists public.pos_sale_items
+  add constraint pos_sale_items_unit_cost_at_sale_check check (unit_cost_at_sale >= 0);
 
 create or replace function public.post_sale_transaction(
   p_sale jsonb,
@@ -59,8 +52,6 @@ declare
   v_payment_method text;
   v_has_items boolean;
   v_unit_cost numeric;
-  v_comp record;
-  v_avail numeric;
 begin
   if p_idempotency_key is not null and trim(p_idempotency_key) <> '' then
     select * into v_existing from public.pos_sales where idempotency_key = p_idempotency_key limit 1;
@@ -123,10 +114,10 @@ begin
 
   insert into public.pos_sales(
     invoice_no, sale_date, location_id, customer_id, payment_method,
-    subtotal, discount, total, paid_amount, balance_due, status, notes, idempotency_key, created_by
+    subtotal, discount, total, paid_amount, balance_due, status, notes, idempotency_key
   ) values (
     nullif(p_sale->>'invoice_no',''), v_sale_date, v_location, v_customer, v_method,
-    v_subtotal, v_discount, v_total, v_paid_signed, v_balance_due, 'posted', nullif(p_sale->>'notes',''), nullif(p_idempotency_key,''), nullif(p_user_identifier,'')
+    v_subtotal, v_discount, v_total, v_paid_signed, v_balance_due, 'posted', nullif(p_sale->>'notes',''), nullif(p_idempotency_key,'')
   ) returning * into v_sale;
 
   for v_item in select * from jsonb_array_elements(p_items) loop
@@ -150,58 +141,16 @@ begin
       v_unit_cost
     );
 
-    -- منتج مركّب: يُخصم المخزون من مكوّناته (والفاتورة تحتفظ بسطر المركّب نفسه)
-    if exists (select 1 from public.pos_composite_items where composite_code = (v_item->>'product_code')) then
-      for v_comp in select component_code, qty as comp_qty from public.pos_composite_items where composite_code = (v_item->>'product_code') loop
-        -- ═══ حارس الطابور غير المتصل (المكوّنات) ═══
-        if coalesce(p_sale->>'offline_queued','') = 'true' then
-          select coalesce(sum(qty),0) into v_avail from (
-            select qty from public.pos_stock
-            where location_id = v_location and lower(product_code) = lower(v_comp.component_code)
-            for update
-          ) s;
-          if coalesce(v_avail,0) - (v_qty * coalesce(v_comp.comp_qty,1)) < 0 then
-            raise exception 'INSUFFICIENT_STOCK_QUEUED: % available % requested %', v_comp.component_code, coalesce(v_avail,0), (v_qty * coalesce(v_comp.comp_qty,1));
-          end if;
-        end if;
-        perform public.pos_adjust_stock_checked(
-          v_location,
-          v_comp.component_code,
-          v_comp.component_code,
-          -(v_qty * coalesce(v_comp.comp_qty,1)),
-          'sale',
-          'pos_sales',
-          v_sale.id,
-          'مكوّن منتج مركّب ' || coalesce(v_item->>'product_code','') || coalesce(' | المستخدم: '||p_user_identifier,'')
-        );
-      end loop;
-    else
-      -- ═══ حارس الطابور غير المتصل ═══
-      -- فاتورة انتظرت في طابور محلي (offline_queued=true) لا يُسمح لها بإنزال
-      -- مخزون الخادم تحت الصفر — لأن جهازًا آخر ربما باع نفس الكمية أثناء
-      -- الانقطاع. تُرفض برسالة INSUFFICIENT_STOCK_QUEUED وتعود للمراجعة.
-      -- (قفل for update يمنع سباق جهازين يرفعان نفس الصنف في نفس اللحظة)
-      if coalesce(p_sale->>'offline_queued','') = 'true' then
-        select coalesce(sum(qty),0) into v_avail from (
-          select qty from public.pos_stock
-          where location_id = v_location and lower(product_code) = lower(v_item->>'product_code')
-          for update
-        ) s;
-        if coalesce(v_avail,0) - v_qty < 0 then
-          raise exception 'INSUFFICIENT_STOCK_QUEUED: % available % requested %', v_item->>'product_code', coalesce(v_avail,0), v_qty;
-        end if;
-      end if;
-      perform public.pos_adjust_stock_checked(
-        v_location,
-        v_item->>'product_code',
-        v_item->>'product_name',
-        -v_qty,
-        'sale',
-        'pos_sales',
-        v_sale.id,
-        'فاتورة بيع' || coalesce(' | المستخدم: '||p_user_identifier,'')
-      );
-    end if;
+    perform public.pos_adjust_stock_checked(
+      v_location,
+      v_item->>'product_code',
+      v_item->>'product_name',
+      -v_qty,
+      'sale',
+      'pos_sales',
+      v_sale.id,
+      'فاتورة بيع' || coalesce(' | المستخدم: '||p_user_identifier,'')
+    );
   end loop;
 
   for v_payment in select * from jsonb_array_elements(coalesce(p_payments,'[]'::jsonb)) loop
@@ -237,20 +186,3 @@ $$;
 grant execute on function public.post_sale_transaction(jsonb,jsonb,jsonb,text,text) to authenticated;
 
 commit;
-
--- ============================================================
--- التحقق بعد التشغيل — نفّذ هذا الاستعلام:
---
---   select p.proname, p.prosrc like '%INSUFFICIENT_STOCK_QUEUED%' as guard_installed
---   from pg_proc p join pg_namespace n on n.oid=p.pronamespace
---   where n.nspname='public' and p.proname='post_sale_transaction';
---
--- يجب أن يعيد: post_sale_transaction | t
---
--- اختبار سلوكي (اختياري، بيئة تجريبية):
---   1. أرسل فاتورة offline_queued=true لصنف كميته 0 ⇒ يجب أن تُرفض برسالة
---      INSUFFICIENT_STOCK_QUEUED.
---   2. أرسل نفس الفاتورة offline_queued=false ⇒ يجب أن تُقبل (كمية سالبة).
---   3. أعد إرسال نفس p_idempotency_key مرتين ⇒ صف واحد فقط في pos_sales
---      والاستجابة الثانية فيها "idempotent_replay": true.
--- ============================================================
