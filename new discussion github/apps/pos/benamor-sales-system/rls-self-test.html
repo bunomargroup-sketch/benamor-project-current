@@ -85,15 +85,15 @@ let session=null,user=null,role=null,branchId=null;
 function $(id){return document.getElementById(id)}
 function msgOf(data,text){ return String((data&&(data.message||data.error||data.hint))||text||'').slice(0,220); }
 
-async function callRest(path,method,body){
+async function callRest(path,method,body,prefer){
   const res=await fetch(SUPABASE_URL+'/rest/v1/'+path,{
     method:method||'GET',
-    headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+session.access_token,'Content-Type':'application/json',Prefer:'return=representation'},
+    headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+session.access_token,'Content-Type':'application/json',Prefer:prefer||'return=representation'},
     body:body?JSON.stringify(body):undefined
   });
   const text=await res.text();
   let data=null; try{data=text?JSON.parse(text):null}catch(e){}
-  return {status:res.status,ok:res.ok,data,text};
+  return {status:res.status,ok:res.ok,data,text,range:res.headers?res.headers.get('content-range'):null};
 }
 async function callRpc(name,body){ return callRest('rpc/'+name,'POST',body||{}); }
 
@@ -142,40 +142,53 @@ async function runAll(){
   let r=await callRest('pos_salary_payments?select=id&limit=5');
   if(!r.ok && r.status===401){ addRow('جلسة منتهية','bad','انتهت الجلسة — سجّل دخولاً جديداً وحدّث الصفحة'); finish(); return; }
   if(!admin) addRow('قراءة المرتبات (pos_salary_payments)', (r.ok&&Array.isArray(r.data)&&r.data.length===0)?'ok':'bad', (r.ok&&r.data.length===0)?'عادت [] — الرجل ممنوع':'المفروض تعود [] لغير المدير', r.data);
-  else addRow('قراءة المرتبات (pos_salary_payments)','info','بمدير: يُفترض أن ترى الصفوف (إن وُجدت) — عدد ما يظهر: '+((r.data||[]).length), r.data);
+  else{
+    const rc=await callRest('pos_salary_payments?select=id&limit=1',undefined,undefined,'count=exact');
+    const total=(rc.range||'').match(/(\d+)$/); /* content-range مثل: 0-0/57 */
+    addRow('قراءة المرتبات (pos_salary_payments)','info','بمدير: الصلاحية تسمح بالقراءة الكاملة — إجمالي الجدول: '+(total?total[1]:'0')+' صف (لو 0 فالجدول فارغ بياناتٍ لا صلاحيةً)', rc.data);
+  }
 
   /* ٢ — الموظفون */
-  r=await callRest('pos_employees?select=id&limit=5');
-  if(!admin) addRow('قراءة الموظفين (pos_employees)', (r.ok&&Array.isArray(r.data)&&r.data.length===0)?'ok':'bad', (r.ok&&r.data.length===0)?'عادت [] — ممنوع':'المفروض تعود [] لغير المدير', r.data);
-  else addRow('قراءة الموظفين (pos_employees)','info','بمدير: يُفترض أن ترى الصفوف — عدد ما يظهر: '+((r.data||[]).length), r.data);
+  if(!admin){
+    r=await callRest('pos_employees?select=id&limit=5');
+    addRow('قراءة الموظفين (pos_employees)', (r.ok&&Array.isArray(r.data)&&r.data.length===0)?'ok':'bad', (r.ok&&r.data.length===0)?'عادت [] — ممنوع':'المفروض تعود [] لغير المدير', r.data);
+  }else{
+    const rc=await callRest('pos_employees?select=id&limit=1',undefined,undefined,'count=exact');
+    const total=(rc.range||'').match(/(\d+)$/);
+    addRow('قراءة الموظفين (pos_employees)','info','بمدير: الصلاحية تسمح بالقراءة الكاملة — إجمالي الجدول: '+(total?total[1]:'0')+' صف (لو 0 فالجدول فارغ بياناتٍ لا صلاحيةً)', rc.data);
+  }
 
   /* ٣ — الحسابات المالية: قراءة الجميع بالتصميم (شاشة الدفع تحتاجها) */
   r=await callRest('pos_finance_accounts?select=id&limit=5');
   addRow('قراءة الحسابات المالية (pos_finance_accounts)','info','قراءتها متاحة لكل المسجّلين بالتصميم (شاشة الدفع تعرضها). المهم: الكتابة ممنوعة لغير مدير/محاسب — عدد ما يظهر: '+((r.data||[]).length), r.data);
 
-  /* ٤+٥ — تعديل منتج: عمود محظور + عمود مسموح */
+  /* ٤+٥ — تعديل منتج: عمود محظور + عمود مسموح
+     ⚠ مفتاح pos_products هو code (لا يوجد عمود id) */
   let prod=null;
-  r=await callRest('pos_products?select=id,code,reorder_point,retail_price&limit=1');
+  r=await callRest('pos_products?select=code,reorder_point,retail_price&active=eq.true&limit=1');
   if(r.ok&&r.data&&r.data.length){ prod=r.data[0];
+    const pkey='pos_products?code=eq.'+encodeURIComponent(prod.code);
     /* ٤: عمود محظور للبائع (reorder_point) — تغيير فعلي واحد ثم عكسه */
-    r=await callRest('pos_products?id=eq.'+prod.id,'PATCH',{reorder_point:Number(prod.reorder_point||0)+1});
+    r=await callRest(pkey,'PATCH',{reorder_point:Number(prod.reorder_point||0)+1});
     if(seller) addRow('تعديل عمود محظور (reorder_point) بتوكن بائع', isRejected(r)?'ok':'bad', isRejected(r)?('مرفوض: '+msgOf(r.data,r.text)):'قبل التغيير! المفروض التريغر يرفض — أصلح فوراً', r.data||r.text);
     else if(role==='accountant'||role==='viewer') addRow('تعديل منتج (PATCH) بتوكن '+role, isRejected(r)?'ok':'bad', isRejected(r)?'مرفوض بالسياسة كما يجب':'قبل التعديل وهو ممنوع لهذا الدور!', r.data||r.text);
     else { /* admin/sales_purchase/warehouse: مسموح — أعد القيمة */
-      const rest=await callRest('pos_products?id=eq.'+prod.id,'PATCH',{reorder_point:Number(prod.reorder_point||0)});
+      const rest=await callRest(pkey,'PATCH',{reorder_point:Number(prod.reorder_point||0)});
       addRow('تعديل عمود منتج بتوكن '+role, (r.ok&&rest.ok)?'ok':'bad', r.ok?('مسموح لهذا الدور — عُدّلت نقطة إعادة الطلب ثم أُعيدت فوراً لقيمتها ('+(rest.ok?'استُعيدت ✓':'تعذر الاستعادة! صحّح يدوياً للمنتج '+prod.code)+')'):'مرفوض: '+msgOf(r.data,r.text), r.data||r.text);
     }
     /* ٥: عمود مسموح للبائع بلا تغيير قيمة (retail_price نفسها) — قرارك المعمول به */
     if(seller){
-      r=await callRest('pos_products?id=eq.'+prod.id,'PATCH',{retail_price:prod.retail_price});
+      r=await callRest(pkey,'PATCH',{retail_price:prod.retail_price});
       addRow('تعديل سعر البيع (عمود مسموح للبائع، بنفس القيمة)', r.ok?'info':'bad', r.ok?'مسموح بالتصميم — قرارك: البائع يعدّل الاسم والأسعار فقط (التريغر يحرس بقية الأعمدة)':'رفض غير متوقع: '+msgOf(r.data,r.text), r.data||r.text);
     }
-  } else addRow('تعديل منتج','warn','لا يوجد منتج للاختبار عليه (أو فشلت القراءة): '+msgOf(r.data,r.text), r.data);
+  } else addRow('تعديل منتج','warn','لا يوجد منتج نشط للاختبار عليه (أو فشلت القراءة): '+msgOf(r.data,r.text), r.data);
 
-  /* ٦ — create_app_user: يُرفض قبل أي إنشاء (فحص الدور أول سطر) */
-  r=await callRpc('create_app_user',{p_identifier:String(user&&user.identifier||'x'),p_code:'xxxxxx'});
+  /* ٦ — create_app_user: بوابة الدور أول فحص داخل الدالة
+     معرّف '!!' يفشل فحص الحروف (بعد البوابة) — آمن للدورين معاً ولا يُنشئ شيئاً:
+     غير المدير ⇒ ONLY_ADMIN · المدير ⇒ INVALID_IDENTIFIER (دليل اجتياز البوابة) */
+  r=await callRpc('create_app_user',{p_identifier:'!!',p_code:'xxxxxx'});
   if(!admin) addRow('استدعاء create_app_user', (!r.ok&&msgOf(r.data,r.text).includes('ONLY_ADMIN'))?'ok':'bad', !r.ok?msgOf(r.data,r.text):'استُدعى بنجاح وهذا خطر!', r.data||r.text);
-  else addRow('استدعاء create_app_user (بمدير)', (!r.ok&&msgOf(r.data,r.text).includes('USER_ALREADY_EXISTS'))?'ok':'bad', msgOf(r.data,r.text)+' — المدير عبر بوابة الدور ثم رفض التكرار: لم يُنشأ شيء', r.data||r.text);
+  else addRow('استدعاء create_app_user (بمدير)', (!r.ok&&msgOf(r.data,r.text).includes('INVALID_IDENTIFIER'))?'ok':'bad', msgOf(r.data,r.text)+' — المدير عبر بوابة الدور ثم رفضه فحص الحروف: لم يُنشأ شيء', r.data||r.text);
 
   /* ٧ — admin_delete_sale على معرّف عشوائي غير موجود: الدور يُفحص قبل الوجود */
   const rnd=(crypto&&crypto.randomUUID)?crypto.randomUUID():('00000000-0000-4000-8000-'+Date.now()+'000').slice(0,35);
