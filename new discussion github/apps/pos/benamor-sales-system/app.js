@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260912-13';
+const APP_BUILD='b20260914-1';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -1906,6 +1906,7 @@ function resetSaleForm(){
   q('saleSubmitBtn').textContent='حفظ البيع'; q('saleCancelEditBtn').classList.add('hidden'); q('saleEditAlert')?.classList.add('hidden'); setActivePayInput(q('saleCashAmount')); renderSaleStockInfo(''); renderSaleCustomerInfo(); updateSaleTotal(); suppressSaleDraftSave=false; setTimeout(()=>q('saleBarcodeInput')?.focus(),50);
 }
 async function openSaleForEdit(id){
+  if(!['admin','sales_purchase'].includes(currentRole?.role)){toast('تعديل الفواتير للمدير وموظف البيع والشراء — للتصحيح استعمل المرتجع','warn');return;}
   try{
     showLoading(true);
     const rows=await api('pos_sale_items',{qs:`?select=*&sale_id=eq.${id}&order=created_at.asc`});
@@ -4005,8 +4006,9 @@ const CTX_BUILDERS={
       {label:'سعر البيع: '+money(p?.retail_price||0)+' '+APP_CONFIG.currency,icon:'ti-tag',action:()=>showProductStockSummary(code,'all')}];
   },
   salesBody(tr){const id=ctxArg(tr,'selectSaleRow'); if(!id) return []; selectSaleRow(id);
+    const canEdit=['admin','sales_purchase'].includes(currentRole?.role);
     const items=[{head:'فاتورة بيع'},
-      {label:'فتح / تعديل',icon:'ti-edit',action:()=>openSaleForEdit(id)},
+      ...(canEdit?[{label:'فتح / تعديل',icon:'ti-edit',action:()=>openSaleForEdit(id)}]:[]),
       {label:'طباعة الفاتورة',icon:'ti-printer',action:()=>printSale(id)},
       {label:'مرتجع',icon:'ti-arrow-back-up',action:()=>openSaleReturn(id)},
       {sep:true},
