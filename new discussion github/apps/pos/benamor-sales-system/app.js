@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260914-1';
+const APP_BUILD='b20260914-2';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -505,6 +505,7 @@ async function loginPOS(create=false){
     if(!loc){throw new Error('تعذر ربط الفرع المختار. حدّث الصفحة وحاول مرة أخرى.');}
     appUser={id:user.id,identifier,branch_id:loc.id,branch_name:loc.name}; localStorage.setItem('posUser',JSON.stringify(appUser));
     await ensureRoleAfterLogin(); updateAuthUI(); applyPermissions(); renderStatusBar(); renderCustomers(); toast(create?'تم إنشاء المستخدم والدخول':'تم الدخول','success');
+    notifyAdminOfSellerEdits();
   }catch(err){
     console.error(err);
     if(err&&err.isAuthError){toast('المعرّف أو الكود غير صحيح','error'); setLoginMessage('المعرّف أو الكود غير صحيح — تأكد من اسم المستخدم والكود ('+friendlyError(err)+')','error');}
@@ -563,6 +564,19 @@ function renderRoles(){
 function editRole(id){
   const r=userRoles.find(x=>x.id===id); if(!r)return;
   q('roleIdentifier').value=r.identifier||''; q('roleDisplayName').value=r.display_name||''; q('roleName').value=r.role||'viewer'; q('roleNotes').value=r.notes||'';
+}
+async function notifyAdminOfSellerEdits(){
+  if(currentRole?.role!=='admin' || !appUser?.identifier) return;
+  try{
+    let last=null; try{last=localStorage.getItem('posAdminEditsSeenAt');}catch(e){}
+    const since=last||new Date(Date.now()-7*864e5).toISOString();
+    const rows=await api('pos_audit_log',{qs:`?select=user_identifier,created_at&action=eq.sale_edit&user_identifier=neq.${encodeURIComponent(appUser.identifier)}&created_at=gte.${since}&limit=200`});
+    if(rows&&rows.length){
+      const users=[...new Set(rows.map(r=>r.user_identifier).filter(Boolean))];
+      toast(`⚠️ ${rows.length} تعديل فاتورة بواسطة: ${users.join('، ')} — التفاصيل في سجل التدقيق`,'warn');
+    }
+    try{localStorage.setItem('posAdminEditsSeenAt',new Date().toISOString());}catch(e){}
+  }catch(e){console.warn('admin edit notifications failed',e)}
 }
 async function changeUserCredentials(oldId){
   if(currentRole?.role!=='admin'){toast('هذه العملية للمدير فقط','warn');return;}
@@ -1906,7 +1920,13 @@ function resetSaleForm(){
   q('saleSubmitBtn').textContent='حفظ البيع'; q('saleCancelEditBtn').classList.add('hidden'); q('saleEditAlert')?.classList.add('hidden'); setActivePayInput(q('saleCashAmount')); renderSaleStockInfo(''); renderSaleCustomerInfo(); updateSaleTotal(); suppressSaleDraftSave=false; setTimeout(()=>q('saleBarcodeInput')?.focus(),50);
 }
 async function openSaleForEdit(id){
-  if(!['admin','sales_purchase'].includes(currentRole?.role)){toast('تعديل الفواتير للمدير وموظف البيع والشراء — للتصحيح استعمل المرتجع','warn');return;}
+  const role=currentRole?.role;
+  if(!['admin','sales_purchase','seller_11','seller_sarraj'].includes(role)){toast('تعديل الفواتير للمدير وموظف البيع والشراء — للتصحيح استعمل المرتجع','warn');return;}
+  if(role==='seller_11'||role==='seller_sarraj'){
+    const sl=sales.find(x=>x.id===id);
+    if(!sl){toast('لم يتم العثور على الفاتورة','warn');return;}
+    if(String(sl.created_by||'')!==String(appUser?.identifier||'')){toast('يمكنك تعديل الفواتير التي أنشأتها أنت فقط — أبلغ المدير لتعديل غيرها','warn');return;}
+  }
   try{
     showLoading(true);
     const rows=await api('pos_sale_items',{qs:`?select=*&sale_id=eq.${id}&order=created_at.asc`});
@@ -2979,6 +2999,7 @@ q('saleForm').addEventListener('submit', async e=>{
     if(balance_due>0){
       await api('pos_customer_ledger',{method:'POST',body:{customer_id,entry_date:body.sale_date,entry_type:'sale',description:body.invoice_no?`فاتورة بيع رقم ${body.invoice_no}`:'فاتورة بيع',debit:balance_due,credit:0,reference_table:'pos_sales',reference_id:saleId}});
     }
+    if(editingSaleId){ await logAction('sale_edit','pos_sales',saleId,`${body.invoice_no||saleId.slice(0,8)} - ${money(body.total)} ${APP_CONFIG.currency} - تعديل بواسطة ${appUser?.identifier||''}`); }
     const msg=editingSaleId?'تم تعديل فاتورة البيع وتحديث المخزون':'تم حفظ فاتورة البيع وتحديث المخزون';
     const shouldPrint=q('salePrintAfterSave').value==='yes'; const mode=saleSaveMode||'new'; closeSalePaymentScreen(); resetSaleForm(); await loadAll(); toast(msg,'success'); if(shouldPrint) setTimeout(()=>printSale(saleId),300); if(mode==='close') openTab('salesList'); saleSaveMode='new';
   }catch(err){console.error(err);toast('خطأ في حفظ البيع: '+friendlyError(err),'error')}
@@ -4006,7 +4027,7 @@ const CTX_BUILDERS={
       {label:'سعر البيع: '+money(p?.retail_price||0)+' '+APP_CONFIG.currency,icon:'ti-tag',action:()=>showProductStockSummary(code,'all')}];
   },
   salesBody(tr){const id=ctxArg(tr,'selectSaleRow'); if(!id) return []; selectSaleRow(id);
-    const canEdit=['admin','sales_purchase'].includes(currentRole?.role);
+    const canEdit=['admin','sales_purchase','seller_11','seller_sarraj'].includes(currentRole?.role);
     const items=[{head:'فاتورة بيع'},
       ...(canEdit?[{label:'فتح / تعديل',icon:'ti-edit',action:()=>openSaleForEdit(id)}]:[]),
       {label:'طباعة الفاتورة',icon:'ti-printer',action:()=>printSale(id)},
@@ -4336,4 +4357,4 @@ function renderComposites(){
 }
 
 function setToday(){const d=new Date().toISOString().slice(0,10); q('paymentDate').value=d; q('purchaseDate').value=d; q('transferDate').value=d; q('saleDate').value=d; if(q('proformaDate')) q('proformaDate').value=d; q('customerPaymentDate').value=d; if(q('dailyCashDateFrom')) q('dailyCashDateFrom').value=d; if(q('dailyCashDateTo')) q('dailyCashDateTo').value=d; if(q('expenseLocation')&&appUser?.branch_id&&!q('expenseLocation').value) q('expenseLocation').value=appUser.branch_id; ['financeTransferDate','expenseDate','salaryPaymentDate'].forEach(id=>{if(q(id))q(id).value=d}); if(q('reportTo')) q('reportTo').value=d; if(q('reportFrom') && !q('reportFrom').value){const first=new Date(); first.setDate(1); q('reportFrom').value=first.toISOString().slice(0,10)}}
-initBranding(); fillSettingsForm(); initConnectivity(); initNavGroups(); setupDecimalInputs(); setupSaleTabFlow(); setupLongPickers(); setTimeout(toggleFinancePaymentMethods,0); setToday(); q('saleLocation')?.addEventListener('change',function(){ if(this.value) localStorage.setItem('posLastSaleLocation',this.value); }); try{if(localStorage.getItem('posNavCollapsed')==='1') document.body.classList.add('nav-collapsed');}catch(e){} renderStatusBar(); renderGDriveStatus(); addTransferRow(); if(q('proformaItemsBody')) addProformaRow(); ensureSaleInvoiceNo(true); updateAuthUI(); loadLoginBranches(); setTimeout(tryRestoreActiveSaleDraft,600); if(appUser?.id && authSession?.access_token){loadAll().then(async()=>{await ensureRoleAfterLogin(); updateAuthUI(); applyPermissions(); renderCustomers();}).catch(e=>{console.error(e); logoutPOS(); toast('انتهت الجلسة، سجل الدخول مرة أخرى','warn')});}else{q('loginIdentifier')?.focus();}
+initBranding(); fillSettingsForm(); initConnectivity(); initNavGroups(); setupDecimalInputs(); setupSaleTabFlow(); setupLongPickers(); setTimeout(toggleFinancePaymentMethods,0); setToday(); q('saleLocation')?.addEventListener('change',function(){ if(this.value) localStorage.setItem('posLastSaleLocation',this.value); }); try{if(localStorage.getItem('posNavCollapsed')==='1') document.body.classList.add('nav-collapsed');}catch(e){} renderStatusBar(); renderGDriveStatus(); addTransferRow(); if(q('proformaItemsBody')) addProformaRow(); ensureSaleInvoiceNo(true); updateAuthUI(); loadLoginBranches(); setTimeout(tryRestoreActiveSaleDraft,600); if(appUser?.id && authSession?.access_token){loadAll().then(async()=>{await ensureRoleAfterLogin(); updateAuthUI(); applyPermissions(); renderCustomers(); notifyAdminOfSellerEdits();}).catch(e=>{console.error(e); logoutPOS(); toast('انتهت الجلسة، سجل الدخول مرة أخرى','warn')});}else{q('loginIdentifier')?.focus();}
