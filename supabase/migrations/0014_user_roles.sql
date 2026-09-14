@@ -1,6 +1,5 @@
 -- ═══ 0014 — أدوار المستخدمين
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-users-setup.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor Sales System - POS users and permissions setup
 -- Run this in Supabase SQL Editor.

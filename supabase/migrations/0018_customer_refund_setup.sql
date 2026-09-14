@@ -1,6 +1,5 @@
--- ═══ 0019 — إعداد استرداد الزبون
+-- ═══ 0018 — إعداد استرداد الزبون
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-customer-refund-setup.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor POS - Customer Refund finance movement type
 -- Run once in Supabase SQL Editor before using negative/refund invoices.

@@ -1,6 +1,5 @@
--- ═══ 0023 — معاملة البيع الذرّية (الأصلية)
+-- ═══ 0022 — معاملة البيع الذرّية (الأصلية)
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-post-sale-transaction.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor POS - Atomic sale/refund transaction RPC
 -- Run once in Supabase SQL Editor.

@@ -1,6 +1,5 @@
--- ═══ 0022 — دوال الدور/التحقق المساعدة
+-- ═══ 0021 — دوال الدور/التحقق المساعدة
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-rpc-permission-helpers.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 begin;
 -- Benamor POS - RPC permissions and branch enforcement helpers

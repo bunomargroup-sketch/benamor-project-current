@@ -1,6 +1,5 @@
--- ═══ 0004 — رقم الزبون التلقائي (تسلسل خاص)
+-- ═══ 0004 — رقم الزبون التلقائي (تسلسل خاص) + فهرسه الفريد
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-customer-enhancements.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor POS — تحسين الزبائن: رقم تلقائي + هاتف ثاني
 -- Run this in Supabase SQL Editor
@@ -8,9 +7,13 @@
 begin;
 
 -- 1. إضافة عمود الهاتف الثاني
-alter table public.pos_customers add column if not exists phone2 text;
--- ⚙️ إصلاح سلسلة: العمود أُضيف في الإنتاج يدوياً ولم يكن في الملف الأصلي (الملف يستعمله دون إنشائه)
+-- ⚙️ إصلاح سلسلة: العمودان أُضيفا في الإنتاج يدوياً — بترتيب الحي (customer_no ثم phone2)
 alter table public.pos_customers add column if not exists customer_no text;
+alter table public.pos_customers add column if not exists phone2 text;
+-- ⚙️ الفهرس الفريد لرقم الزبون (موجود في الإنتاج — بصيغته الحرفية)
+create unique index if not exists pos_customers_customer_no_uidx
+  on public.pos_customers(customer_no)
+  where customer_no is not null and trim(customer_no) <> '';
 
 -- 2. إضافة تسلسل لتوليد أرقام الزبائن تلقائياً
 create sequence if not exists pos_customer_no_seq start 1;

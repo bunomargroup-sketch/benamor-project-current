@@ -1,6 +1,5 @@
--- ═══ 0018 — السماح ببنود سالبة داخل الفاتورة
+-- ═══ 0017 — بنود سالبة داخل فاتورة البيع (sale_items فقط كما في الإنتاج)
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-negative-sale-items-setup.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor POS - Allow negative sale item quantities for mixed sale/return invoices
 -- Run once in Supabase SQL Editor after deploying the refund workflow.

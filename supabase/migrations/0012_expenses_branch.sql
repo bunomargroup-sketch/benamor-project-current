@@ -1,6 +1,5 @@
 -- ═══ 0012 — فهرس المصاريف بالفرع
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-expenses-branch.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor POS - Branch attribution for expenses
 -- Run once in Supabase SQL Editor.

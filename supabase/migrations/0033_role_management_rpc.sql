@@ -1,6 +1,5 @@
--- ═══ 0034 — إدارة الأدوار RPC
+-- ═══ 0033 — إدارة الأدوار RPC
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-role-management-rpc.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor POS - Secure admin role management RPC
 -- Fixes RLS errors when admins edit pos_user_roles from the POS UI.

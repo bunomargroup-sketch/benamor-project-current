@@ -1,6 +1,5 @@
--- ═══ 0025 — معاملة مرتجع البيع
+-- ═══ 0024 — معاملة مرتجع البيع
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-post-sale-return-transaction.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor POS - Atomic sale return transaction RPC
 -- Run once in Supabase SQL Editor.

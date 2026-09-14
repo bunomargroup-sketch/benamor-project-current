@@ -1,6 +1,5 @@
--- ═══ 0007 — سجل التدقيق + سعر الجملة + الجرد
+-- ═══ 0008 — سجل التدقيق + سعر الجملة + الجرد + عمود الوصف
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-stockcount-audit-pricing.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor POS - الجرد الفعلي + سجل التدقيق + مستويات التسعير
 -- Stock count + Audit trail + Wholesale pricing
@@ -28,5 +27,7 @@ create policy "auth insert pos_audit_log" on public.pos_audit_log for insert to 
 
 -- 2. عمود سعر الجملة (Wholesale price)
 alter table public.pos_products add column if not exists wholesale_price numeric not null default 0;
+-- ⚙️ إصلاح سلسلة: عمود الوصف موجود في الإنتاج (أُضيف يدوياً) — وترتيبه آخر عمود كما في الحي
+alter table public.pos_products add column if not exists description text;
 
 commit;

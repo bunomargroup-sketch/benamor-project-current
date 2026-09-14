@@ -1,7 +1,3 @@
--- ═══ 0015 — العدّادات المركزية + تريغرات الترقيم + تحديث الـ views
--- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-numbering-setup.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
-
 -- Benamor Sales System - SAFE unique numbering setup
 -- This version is safe even if optional modules (like proformas) are not installed yet.
 -- Run in Supabase SQL Editor.
@@ -66,10 +62,6 @@ begin
 end $$;
 
 -- Customers
--- ⚙️ إصلاح سلسلة: إسقاط الـ views قبل إعادة تعريفها — النسخ الجديدة تضيف أعمدة (customer_no/product_no)
---    بترتيب مختلف فترفض Postgres الاستبدال المباشر
-drop view if exists public.pos_customer_balances;
-drop view if exists public.pos_product_stock_summary;
 DO $$
 begin
   if to_regclass('public.pos_customers') is not null then

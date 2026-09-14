@@ -1,6 +1,5 @@
--- ═══ 0016 — إصلاح ترقيم فواتير البيع (عداد مخصص)
+-- ═══ 0015 — ترقيم فواتير البيع (عداد مخصص) — الترقيم العام غير مشغّل في الإنتاج
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-invoice-numbering-fix.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor POS - Atomic backend invoice numbering fix
 -- Run once in Supabase SQL Editor.

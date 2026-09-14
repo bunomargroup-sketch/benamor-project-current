@@ -1,6 +1,5 @@
 -- ═══ 0009 — الفواتير المبدئية
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-proforma-setup.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor Sales System - Proforma invoices / preliminary invoices
 -- Run once in Supabase SQL Editor.

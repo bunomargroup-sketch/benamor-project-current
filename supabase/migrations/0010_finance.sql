@@ -1,6 +1,5 @@
 -- ═══ 0010 — الحسابات المالية/الحركات/المصاريف/الموظفون/المرتبات + view
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-finance-setup.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor Sales System - Treasuries, bank accounts, expenses, salaries
 -- Run once in Supabase SQL Editor.
@@ -14,7 +13,8 @@ create table if not exists public.pos_finance_accounts (
   location_id uuid references public.pos_locations(id) on delete set null,
   bank_name text,
   account_no text,
-  accepted_methods text[],
+  -- ⚙️ إصلاح سلسلة: accepted_methods موجودة في ملف المصدر هنا لكنها في الإنتاج أُضيفت لاحقاً بـALTER
+  --    (انظر 0011_finance_payment_methods) فجاءت آخر الجدول — حُذفت من التعريف لمطابقة ترتيب الحي
   opening_balance numeric not null default 0,
   active boolean not null default true,
   notes text,

@@ -1,158 +1,157 @@
--- ═══ 0037 — سلالات عارض الأسعار: الجداول + RPC الحفظ
--- ⚠️⚠️ ملف مُعاد البناء (RECONSTRUCTED) — ليس نسخة حرفية ⚠️⚠️
--- هذا الكائن لم يكن في المستودع إطلاقاً (كان موجوداً في قاعدة البيانات الحيّة
--- فقط). أُعيد بناؤه من كود التطبيق (apps/pricechecker/index.html + دوال
--- 0038_pricechecker_carts_rpc.sql) ليكتمل بناء القاعدة من الصفر.
---
--- ⚠ لتأكيد المطابقة الحرفية مع الحيّ: شغّل supabase/extract-live-schema.sql
---   على الإنتاج وقارن الناتج بـ schema-local.json — أي فرق في الأعمدة/الأنواع
---   سيظهر وسنصحّح هذا الملف ليطابق.
---
--- الاستخدام المرصود من كود التطبيق:
---   carts:        حفظ سلة زبون لعارض الأسعار (payload + status open/converted)
---   cart_items:   بنود السلة مع الهوامش
---   save_pricechecker_cart: تُستدعى من عارض الأسعار (upsert سلة + استبدال بنودها)
+-- ═══ 0037 — سلالات عارض الأسعار: الجداول + السياسات + RPC الحفظ
+-- ⚠️ إعادة بناء حرفية (RECONSTRUCTED-EXACT) من قاعدة الإنتاج عبر
+-- extract-live-schema.sql — تطابق التعريفات الحية عموداً بعمود وسياسة بسياسة
+-- (النسخة السابقة كانت تخميناً من كود التطبيق — هذه هي الحقيقة الأرضية)
 -- ═══════════════════════════════════════════════════════════════════
 
 begin;
 
+-- ترتيب الأعمدة مطابق للحي
 create table if not exists public.carts (
   id uuid primary key default gen_random_uuid(),
-  app_user_id uuid,
-  user_id uuid,
-  branch_name text,
   customer_name text,
   customer_phone text,
   notes text,
-  discount_percent numeric not null default 0,
-  subtotal numeric not null default 0,
-  discount_amount numeric not null default 0,
-  total numeric not null default 0,
-  total_margin numeric not null default 0,
-  total_margin_rate numeric not null default 0,
-  status text not null default 'open',
-  updated_at timestamptz not null default now(),
-  created_at timestamptz not null default now()
+  discount_percent numeric default 0,
+  subtotal numeric default 0,
+  discount_amount numeric default 0,
+  total numeric default 0,
+  total_margin numeric default 0,
+  total_margin_rate numeric default 0,
+  status text default 'open'::text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  user_id uuid references auth.users(id) on delete cascade,
+  app_user_id uuid references app_users(id) on delete cascade,
+  branch_name text
 );
-
-create index if not exists carts_user_updated_idx
-  on public.carts(user_id, updated_at desc);
+alter table public.carts enable row level security;
 
 create table if not exists public.cart_items (
   id uuid primary key default gen_random_uuid(),
-  cart_id uuid not null references public.carts(id) on delete cascade,
-  user_id uuid,
-  product_code text,
+  cart_id uuid references carts(id) on delete cascade,
+  product_code text not null,
   product_name text,
   brand text,
   model text,
-  quantity numeric not null default 0,
-  unit_price numeric not null default 0,
-  unit_cost numeric not null default 0,
-  line_total numeric not null default 0,
-  margin_value numeric not null default 0,
-  margin_rate numeric not null default 0
+  quantity numeric default 1,
+  unit_price numeric default 0,
+  unit_cost numeric default 0,
+  line_total numeric default 0,
+  margin_value numeric default 0,
+  margin_rate numeric default 0,
+  created_at timestamptz default now(),
+  user_id uuid references auth.users(id)
 );
-
-create index if not exists cart_items_cart_idx
-  on public.cart_items(cart_id);
-
--- RLS: كل مستخدم مسجّل يرى ويعدّل سلاله فقط
-alter table public.carts enable row level security;
 alter table public.cart_items enable row level security;
 
-drop policy if exists carts_owner on public.carts;
-create policy carts_owner on public.carts
-  for all to authenticated
-  using (user_id = auth.uid())
-  with check (user_id = auth.uid());
+-- السياسات الثماني بأسمائها الحية (لكل أمر سياسة باسمه كما في الإنتاج)
+drop policy if exists "owner read carts" on public.carts;
+create policy "owner read carts" on public.carts
+  for select to authenticated using (user_id = auth.uid());
+drop policy if exists "owner insert carts" on public.carts;
+create policy "owner insert carts" on public.carts
+  for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists "owner update carts" on public.carts;
+create policy "owner update carts" on public.carts
+  for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "owner delete carts" on public.carts;
+create policy "owner delete carts" on public.carts
+  for delete to authenticated using (user_id = auth.uid());
 
-drop policy if exists cart_items_owner on public.cart_items;
-create policy cart_items_owner on public.cart_items
-  for all to authenticated
-  using (cart_id in (select id from public.carts where user_id = auth.uid()))
-  with check (cart_id in (select id from public.carts where user_id = auth.uid()));
+drop policy if exists "owner read cart items" on public.cart_items;
+create policy "owner read cart items" on public.cart_items
+  for select to authenticated using (user_id = auth.uid());
+drop policy if exists "owner insert cart items" on public.cart_items;
+create policy "owner insert cart items" on public.cart_items
+  for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists "owner update cart items" on public.cart_items;
+create policy "owner update cart items" on public.cart_items
+  for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "owner delete cart items" on public.cart_items;
+create policy "owner delete cart items" on public.cart_items
+  for delete to authenticated using (user_id = auth.uid());
 
--- حفظ السلة (upsert) — يستدعيها عارض الأسعار بجلسة مستخدمه
-create or replace function public.save_pricechecker_cart(
-  p_cart jsonb,
-  p_items jsonb default '[]'::jsonb,
-  p_cart_id uuid default null
-)
-returns uuid
-language plpgsql
-security definer
-set search_path = public, auth
-as $$
+-- الدالة الحية (تُرجع jsonb للسلة كاملة — upsert بملكية المستخدم)
+CREATE OR REPLACE FUNCTION public.save_pricechecker_cart(p_cart jsonb, p_items jsonb, p_cart_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $$
 declare
-  v_id uuid := p_cart_id;
-  v_user uuid := nullif(p_cart->>'user_id','')::uuid;
+  v_user uuid := auth.uid();
+  v_cart public.carts%rowtype;
+  v_item jsonb;
 begin
   if v_user is null then
-    v_user := auth.uid();
+    raise exception 'AUTH_REQUIRED';
   end if;
-  if v_user is null or v_user <> auth.uid() then
-    raise exception 'CART_USER_MISMATCH';
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items)=0 then
+    raise exception 'CART_HAS_NO_ITEMS';
   end if;
 
-  if v_id is not null then
-    update public.carts set
-      app_user_id = nullif(p_cart->>'app_user_id','')::uuid,
-      user_id = v_user,
-      branch_name = nullif(p_cart->>'branch_name',''),
-      customer_name = nullif(p_cart->>'customer_name',''),
-      customer_phone = nullif(p_cart->>'customer_phone',''),
-      notes = nullif(p_cart->>'notes',''),
-      discount_percent = coalesce(nullif(p_cart->>'discount_percent','')::numeric,0),
-      subtotal = coalesce(nullif(p_cart->>'subtotal','')::numeric,0),
-      discount_amount = coalesce(nullif(p_cart->>'discount_amount','')::numeric,0),
-      total = coalesce(nullif(p_cart->>'total','')::numeric,0),
-      total_margin = coalesce(nullif(p_cart->>'total_margin','')::numeric,0),
-      total_margin_rate = coalesce(nullif(p_cart->>'total_margin_rate','')::numeric,0),
-      status = coalesce(nullif(p_cart->>'status',''),'open'),
-      updated_at = now()
-    where id = v_id and user_id = v_user;
-    if not found then
-      raise exception 'CART_NOT_FOUND_OR_NOT_OWNED';
-    end if;
-    delete from public.cart_items where cart_id = v_id;
-  else
-    insert into public.carts (
-      app_user_id, user_id, branch_name, customer_name, customer_phone, notes,
-      discount_percent, subtotal, discount_amount, total, total_margin, total_margin_rate, status
+  if p_cart_id is not null then
+    update public.carts
+      set user_id = v_user,
+          branch_name = nullif(p_cart->>'branch_name',''),
+          customer_name = nullif(p_cart->>'customer_name',''),
+          customer_phone = nullif(p_cart->>'customer_phone',''),
+          notes = nullif(p_cart->>'notes',''),
+          discount_percent = coalesce(nullif(p_cart->>'discount_percent','')::numeric,0),
+          subtotal = coalesce(nullif(p_cart->>'subtotal','')::numeric,0),
+          discount_amount = coalesce(nullif(p_cart->>'discount_amount','')::numeric,0),
+          total = coalesce(nullif(p_cart->>'total','')::numeric,0),
+          total_margin = coalesce(nullif(p_cart->>'total_margin','')::numeric,0),
+          total_margin_rate = coalesce(nullif(p_cart->>'total_margin_rate','')::numeric,0),
+          status = coalesce(nullif(p_cart->>'status',''),'open'),
+          updated_at = now()
+    where id = p_cart_id and (user_id = v_user or user_id is null)
+    returning * into v_cart;
+  end if;
+
+  if v_cart.id is null then
+    insert into public.carts(
+      user_id, branch_name, customer_name, customer_phone, notes,
+      discount_percent, subtotal, discount_amount, total,
+      total_margin, total_margin_rate, status, updated_at
     ) values (
-      nullif(p_cart->>'app_user_id','')::uuid, v_user, nullif(p_cart->>'branch_name',''),
-      nullif(p_cart->>'customer_name',''), nullif(p_cart->>'customer_phone',''), nullif(p_cart->>'notes',''),
+      v_user, nullif(p_cart->>'branch_name',''), nullif(p_cart->>'customer_name',''), nullif(p_cart->>'customer_phone',''), nullif(p_cart->>'notes',''),
       coalesce(nullif(p_cart->>'discount_percent','')::numeric,0),
       coalesce(nullif(p_cart->>'subtotal','')::numeric,0),
       coalesce(nullif(p_cart->>'discount_amount','')::numeric,0),
       coalesce(nullif(p_cart->>'total','')::numeric,0),
       coalesce(nullif(p_cart->>'total_margin','')::numeric,0),
       coalesce(nullif(p_cart->>'total_margin_rate','')::numeric,0),
-      coalesce(nullif(p_cart->>'status',''),'open')
-    ) returning id into v_id;
+      coalesce(nullif(p_cart->>'status',''),'open'),
+      now()
+    ) returning * into v_cart;
   end if;
 
-  insert into public.cart_items (
-    cart_id, user_id, product_code, product_name, brand, model,
-    quantity, unit_price, unit_cost, line_total, margin_value, margin_rate
-  )
-  select
-    v_id,
-    v_user,
-    i->>'product_code',
-    i->>'product_name',
-    i->>'brand',
-    i->>'model',
-    coalesce(nullif(i->>'quantity','')::numeric,0),
-    coalesce(nullif(i->>'unit_price','')::numeric,0),
-    coalesce(nullif(i->>'unit_cost','')::numeric,0),
-    coalesce(nullif(i->>'line_total','')::numeric,0),
-    coalesce(nullif(i->>'margin_value','')::numeric,0),
-    coalesce(nullif(i->>'margin_rate','')::numeric,0)
-  from jsonb_array_elements(coalesce(p_items,'[]'::jsonb)) i;
+  delete from public.cart_items
+  where cart_id = v_cart.id and (user_id = v_user or user_id is null);
 
-  return v_id;
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    insert into public.cart_items(
+      user_id, cart_id, product_code, product_name, brand, model,
+      quantity, unit_price, unit_cost, line_total, margin_value, margin_rate
+    ) values (
+      v_user,
+      v_cart.id,
+      v_item->>'product_code',
+      v_item->>'product_name',
+      nullif(v_item->>'brand',''),
+      nullif(v_item->>'model',''),
+      coalesce(nullif(v_item->>'quantity','')::numeric,0),
+      coalesce(nullif(v_item->>'unit_price','')::numeric,0),
+      coalesce(nullif(v_item->>'unit_cost','')::numeric,0),
+      coalesce(nullif(v_item->>'line_total','')::numeric,0),
+      coalesce(nullif(v_item->>'margin_value','')::numeric,0),
+      coalesce(nullif(v_item->>'margin_rate','')::numeric,0)
+    );
+  end loop;
+
+  return to_jsonb(v_cart);
 end;
 $$;
 

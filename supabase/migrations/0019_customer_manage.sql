@@ -1,6 +1,5 @@
--- ═══ 0020 — إدارة الزبائن + دوال الدور
+-- ═══ 0019 — إدارة الزبائن + دوال الدور
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-customer-manage.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor POS - إدارة الزبائن: صلاحية حذف للمدير فقط
 -- Customer management: admin-only DELETE policy on pos_customers

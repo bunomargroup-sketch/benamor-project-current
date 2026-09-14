@@ -1,6 +1,5 @@
--- ═══ 0027 — تعديل المخزون المحقون (نسخة تاريخية)
+-- ═══ 0026 — تعديل المخزون المحقون (نسخة تاريخية)
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-atomic-stock-rpc.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor POS - Atomic stock mutation RPC
 -- Run once in Supabase SQL Editor before enabling strict race-safe stock updates.

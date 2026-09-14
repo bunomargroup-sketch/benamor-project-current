@@ -41,6 +41,9 @@ function load(p){
   return parseCSV(t);
 }
 const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
+/* إزالة ضجيج PG18: يُدرج قيود NOT NULL ضمن pg_constraint (الإنتاج 15/17 لا يفعل)
+   — ليست انحرافاً حقيقياً بل فرق إصدار */
+const normDef=s=>norm(s).replace(/NOT NULL [a-zA-Z_0-9]+;? ?/g,'').replace(/;\s*;+/g,';').replace(/;\s*"/g,'"').replace(/;\s*$/,'').replace(/"\s*,\s*"(\w+)":\s*"\s*"/g,'",\"$1\":\"\"');
 
 const A=load(process.argv[2]), B=load(process.argv[3]);
 if(!A.length||!B.length){ console.error('ملف فارغ أو غير صالح'); process.exit(2); }
@@ -52,7 +55,7 @@ for(const k of [...all].sort()){
   const a=mapA.get(k), b=mapB.get(k);
   if(a&&!b) onlyA.push(k);
   else if(!a&&b) onlyB.push(k);
-  else if(norm(a.definition)!==norm(b.definition)) diff.push(k);
+  else if(normDef(a.definition)!==normDef(b.definition)) diff.push(k);
 }
 const label=process.argv[2].includes('live')?'الأول (الحي)':'الأول';
 console.log(`═══ مقارنة المخطّطين ═══`);
@@ -62,7 +65,7 @@ console.log(`\n── فقط في الثاني (${onlyB.length}):`); onlyB.forEa
 console.log(`\n── موجودة في الاثنين بتعريف مختلف (${diff.length}):`);
 diff.forEach(k=>{
   console.log('  ≠',k);
-  const a=norm(mapA.get(k).definition), b=norm(mapB.get(k).definition);
+  const a=normDef(mapA.get(k).definition), b=normDef(mapB.get(k).definition);
   // أظهر أول اختلاف موجز
   let i=0; while(i<Math.min(a.length,b.length)&&a[i]===b[i]) i++;
   console.log('     الأول: …'+a.slice(Math.max(0,i-40),i+120).trim());

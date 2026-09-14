@@ -1,6 +1,5 @@
 -- ═══ 0013 — إغلاق الصندوق اليومي
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-daily-cash-closing.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor POS - Daily cash closing reports
 -- Run once in Supabase SQL Editor.

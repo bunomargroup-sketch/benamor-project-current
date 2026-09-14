@@ -1,6 +1,5 @@
--- ═══ 0033 — دور البيع-والشراء
+-- ═══ 0032 — دور البيع-والشراء
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-sales-purchase-role.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor POS - Add role: sales_purchase
 -- This role can sell and create purchase invoices in both sales branches, but is not admin.

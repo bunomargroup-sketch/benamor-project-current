@@ -1,6 +1,5 @@
 -- ═══ 0043 — سياسات الأدوار ٣ (تغطية كاملة)
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-role-policies-phase3.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- ═══════════════════════════════════════════════════════════════════
 -- سياسات الأدوار — المرحلة 3 (الأخيرة) — المنتجات والتشغيلية
@@ -348,15 +347,21 @@ create policy pos_role_nc_admin on public.pos_number_counters
   using (public.pos_policy_role() = 'admin')
   with check (public.pos_policy_role() = 'admin');
 
--- ⚙️ إصلاح سلسلة: جدول الاستيراد المؤقت كان موجوداً في الحيّ فقط بلا ملف في المستودع
---    (لا يستعمله التطبيق حالياً — أنشئه بالحد الأدنى لتكتمل السياسات؛ المقارنة الحيّة تؤكد أعمدته)
+-- ⚙️ إصلاح سلسلة: الجدول كان موجوداً في الإنتاج فقط — التعريف الحرفي من الاستخراج الحي
 create table if not exists public.pos_import_staging (
-  id uuid primary key default gen_random_uuid(),
-  import_type text,
-  payload jsonb,
-  status text default 'pending',
-  created_at timestamptz default now()
+  code text primary key,
+  name text,
+  brand text,
+  model text,
+  stock_11 numeric,
+  stock_sarraj numeric,
+  stock_janzour numeric,
+  supplier_name text,
+  category text,
+  purchase_price numeric,
+  retail_price numeric
 );
+alter table public.pos_import_staging enable row level security;
 
 -- جدول الاستيراد المؤقت: مدير فقط
 create policy pos_role_imp_admin on public.pos_import_staging

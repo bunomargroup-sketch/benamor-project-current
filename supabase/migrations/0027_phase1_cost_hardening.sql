@@ -1,6 +1,5 @@
--- ═══ 0028 — تحصين التكلفة والمرتجعات
+-- ═══ 0027 — تحصين التكلفة والمرتجعات
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-phase1-cost-and-return-hardening.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor POS - Phase 1: historical cost snapshot + block unlinked negative sale lines
 -- Run after post_sale_transaction SQL. This replaces post_sale_transaction with unit_cost_at_sale support

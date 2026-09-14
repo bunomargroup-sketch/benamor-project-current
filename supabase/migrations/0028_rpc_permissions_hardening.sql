@@ -1,6 +1,5 @@
--- ═══ 0029 — فحوص الدور داخل كل معاملات RPC
+-- ═══ 0028 — فحوص الدور داخل كل معاملات RPC
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-phase1-rpc-permissions-hardening.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor POS - Phase 1 RPC permissions/branch + strict finance hardening
 -- Run in Supabase SQL Editor after Phase 1 RPC files, or use this as a combined redefinition patch.

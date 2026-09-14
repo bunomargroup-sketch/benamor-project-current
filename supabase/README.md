@@ -86,16 +86,39 @@ Expected known diffs (see "Reconstructed objects" below) will list
 Everything else should match; any additional difference is real drift between
 the repository chain and production and must be reconciled.
 
-## Reconstructed objects (live-only, rebuilt from app code)
+## LIVE PARITY — verified 2026-09-14 (full reconciliation complete)
 
-These objects existed **only** in the production database (never committed).
-They are reconstructed and clearly marked; run the comparison above and
-reconcile any column/type differences, then update:
+A full live export (`schema-live.csv`, produced by `extract-live-schema.sql`
+on production) was compared against the chain-built schema
+(`schema-local.json`). **Result: 169 objects on each side, zero objects
+missing on either side, and exactly ONE definition difference:**
 
-* `0037_pricechecker_carts_tables.sql` — `public.carts`, `public.cart_items`,
-  `save_pricechecker_cart()` (rebuilt from `apps/pricechecker/index.html` usage).
-* `0043_role_policies_phase3.sql` (⚙️ block) — `public.pos_import_staging`
-  (referenced by a policy; not used by the app currently).
+* `post_sale_transaction` — the chain includes the offline-queue stock guard
+  (`0045`) which has NOT been run on production yet. Running
+  `supabase-pos-offline-queue.sql` in production closes the last gap and
+  makes the schemas 100% identical.
+
+### Objects that existed only live (now reproduced verbatim)
+* `0036_web_and_legacy_tables.sql` — `app_users` + `login_app_user()` (legacy
+  prototype auth; `carts.app_user_id` FK points to it), `product_costs`,
+  `staff_roles`, `web_products`, `web_orders`, `web_order_items` + all their
+  policies (website catalog & orders).
+* `0037_pricechecker_carts_tables.sql` — `carts`, `cart_items`, their 8
+  per-command policies and the REAL `save_pricechecker_cart()` (returns jsonb)
+  — rebuilt VERBATIM from the live export.
+* `0043` (⚙️ block) — real `pos_import_staging` definition (product-import
+  staging, PK=code).
+* `0047_post_purchase_sales_purchase.sql` — production's
+  `post_purchase_transaction` allows the `sales_purchase` role (repo files
+  did not); live version adopted verbatim.
+
+### Files never run on production (moved to `_excluded/`)
+* `numbering-setup` — would add product_no/purchase_no/return_no/transfer_no/
+  proforma_no columns, `next_pos_number()` and 7 triggers; production only
+  ever applied sales invoice numbering (`invoice_numbering_fix`). Excluded to
+  match live exactly.
+* (finance-payment-methods WAS excluded then RESTORED — production does have
+  `accepted_methods`, added via ALTER, so it runs at 0011.)
 
 ## Chain fixes (⚙️ markers inside migration copies)
 
@@ -104,10 +127,11 @@ The chain copies fix them, each marked with a `⚙️ إصلاح سلسلة` com
 
 | File | Fix | Why |
 |---|---|---|
-| `0004_customer_enhancements` | add `pos_customers.customer_no` | the original file used the column without creating it (was added manually in production) |
-| `0015_numbering` | `drop view` before re-creating `pos_customer_balances` / `pos_product_stock_summary` | new versions add columns in different positions; `create or replace view` cannot rename columns |
-| `0043_role_policies_phase3` | create `pos_import_staging` | table existed only live |
-| `0037` | whole file reconstructed | tables existed only live |
+| `0001_core_tables` | purchase/transfer item qty checks `> 0` (source file says `<> 0`) | production tables kept the original checks; only sale_items was later changed |
+| `0004_customer_enhancements` | add `customer_no` (before `phone2`) + its unique index | columns/index existed in production only (added manually), in that order |
+| `0008_audit_log_pricing` | add `pos_products.description` | column exists in production only (added manually, last position) |
+| `0010_finance` | remove inline `accepted_methods` | in production the column was added later via ALTER (0011), so it is the LAST column |
+| `0043_role_policies_phase3` | create real `pos_import_staging` | table existed only live |
 
 ## Excluded from the chain (on purpose)
 

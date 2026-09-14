@@ -1,6 +1,5 @@
 -- ═══ 0003 — الزبائن/فواتير البيع/البنود/قيود الزبائن + view الأرصدة
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-sales-setup.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor Sales System - Sales + customers setup
 -- Run this once in Supabase SQL Editor before using the sales screen.

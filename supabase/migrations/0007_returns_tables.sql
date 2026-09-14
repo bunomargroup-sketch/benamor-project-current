@@ -1,6 +1,5 @@
--- ═══ 0008 — مرتجعات البيع + باركود + نقطة إعادة الطلب + خصم السطر
+-- ═══ 0007 — مرتجعات البيع + باركود + نقطة إعادة الطلب + view الملخص النهائي
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-returns-barcode-discount-reorder.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor Sales System - Barcode, returns/refunds, sale line discounts, reorder points
 -- Run this once in Supabase SQL Editor.

@@ -1,6 +1,5 @@
--- ═══ 0006 — عمود اللون + فهرسه + تحديث view الملخص
+-- ═══ 0006 — عمود اللون + تحديث view الملخص
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-products-color-update.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor Sales System - Product color support
 -- FIXED VERSION

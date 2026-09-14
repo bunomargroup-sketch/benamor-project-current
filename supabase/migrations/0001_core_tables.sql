@@ -1,6 +1,5 @@
 -- ═══ 0001 — الفروع/المورّدون/المخزون/الشراء/التحويلات + view أرصدة المورّدين
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-setup.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamar / Bun Omar Sales System - POS phase 1
 -- Run this once in Supabase SQL Editor.
@@ -102,7 +101,7 @@ create table if not exists public.pos_purchase_items (
   purchase_id uuid not null references public.pos_purchases(id) on delete cascade,
   product_code text,
   product_name text not null,
-  qty numeric not null check (qty <> 0),
+  qty numeric not null check (qty > 0),
   unit_cost numeric not null default 0 check (unit_cost >= 0),
   line_total numeric not null default 0,
   created_at timestamptz not null default now()
@@ -150,7 +149,7 @@ create table if not exists public.pos_stock_transfer_items (
   transfer_id uuid not null references public.pos_stock_transfers(id) on delete cascade,
   product_code text not null,
   product_name text,
-  qty numeric not null check (qty <> 0),
+  qty numeric not null check (qty > 0),
   created_at timestamptz not null default now()
 );
 

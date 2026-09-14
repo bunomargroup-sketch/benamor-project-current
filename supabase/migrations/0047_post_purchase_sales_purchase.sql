@@ -1,75 +1,11 @@
--- ═══ 0024 — معاملة الشراء الذرّية
--- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-post-purchase-transaction.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
-
--- Benamor POS - Atomic purchase transaction RPC
--- Run once in Supabase SQL Editor.
--- Saves purchase header, items, stock increases, stock movements, supplier ledger, supplier payment and finance movement in ONE DB transaction.
+-- ═══ 0047 — مطابقة معاملة الشراء للإنتاج: دور «بيع-وشراء» مسموح
+-- الفرق الوحيد بين السلسلة والإنتاج في هذه الدالة (اكتشفته المقارنة الحية):
+-- الإنتاج يسمح لـ sales_purchase بترحيل فواتير الشراء والسلسلة (من ملف
+-- phase1-rpc-permissions-hardening) لم تكن تشمله. هذه النسخة = نسخة الإنتاج
+-- حرفياً. لا يُشغَّل على الإنتاج (هو فيه أصلاً) — للسلسلة/البيئات الجديدة فقط.
+-- ═══════════════════════════════════════════════════════════════════
 
 begin;
-
-alter table if exists public.pos_purchases
-  add column if not exists idempotency_key text;
-
-create unique index if not exists pos_purchases_idempotency_key_uidx
-on public.pos_purchases(idempotency_key)
-where idempotency_key is not null and trim(idempotency_key) <> '';
-
--- Atomic checked stock mutation helper, included here so the file can be run alone.
-create or replace function public.pos_adjust_stock_checked(
-  p_location_id uuid,
-  p_product_code text,
-  p_product_name text,
-  p_qty_change numeric,
-  p_movement_type text,
-  p_reference_table text,
-  p_reference_id uuid,
-  p_notes text default null
-)
-returns numeric
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_id uuid;
-  v_qty numeric;
-  v_new_qty numeric;
-begin
-  if p_location_id is null then raise exception 'LOCATION_REQUIRED'; end if;
-  if p_product_code is null or trim(p_product_code) = '' then raise exception 'PRODUCT_CODE_REQUIRED'; end if;
-  if p_qty_change is null or p_qty_change = 0 then raise exception 'QTY_CHANGE_REQUIRED'; end if;
-
-  select id, qty into v_id, v_qty
-  from public.pos_stock
-  where location_id = p_location_id and lower(product_code) = lower(p_product_code)
-  for update;
-
-  if v_id is null then
-    if p_qty_change < 0 then
-      raise exception 'INSUFFICIENT_STOCK: % available 0 requested %', p_product_code, abs(p_qty_change);
-    end if;
-    insert into public.pos_stock(location_id, product_code, product_name, qty, updated_at)
-    values (p_location_id, p_product_code, p_product_name, p_qty_change, now())
-    returning qty into v_new_qty;
-  else
-    v_new_qty := coalesce(v_qty,0) + p_qty_change;
-    if v_new_qty < 0 then
-      raise exception 'INSUFFICIENT_STOCK: % available % requested %', p_product_code, v_qty, abs(p_qty_change);
-    end if;
-    update public.pos_stock
-      set qty = v_new_qty,
-          product_name = coalesce(p_product_name, product_name),
-          updated_at = now()
-    where id = v_id;
-  end if;
-
-  insert into public.pos_stock_movements(location_id, product_code, product_name, movement_type, qty_change, reference_table, reference_id, notes)
-  values (p_location_id, p_product_code, p_product_name, p_movement_type, p_qty_change, p_reference_table, p_reference_id, p_notes);
-
-  return v_new_qty;
-end;
-$$;
 
 create or replace function public.post_purchase_transaction(
   p_purchase jsonb,

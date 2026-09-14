@@ -1,6 +1,3 @@
--- ═══ 0011 — أعمدة طرق الدفع المقبولة (مشغّل في الإنتاج — يضيف العمود آخر الجدول)
--- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-finance-payment-methods-setup.sql
-
 -- Benamor POS - Finance account accepted payment methods
 -- Run once in Supabase SQL Editor before using bank/card method configuration.
 

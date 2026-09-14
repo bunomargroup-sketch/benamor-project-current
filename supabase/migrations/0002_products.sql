@@ -1,6 +1,5 @@
 -- ═══ 0002 — المنتجات + view ملخص المخزون (الأساس)
 -- المصدر (نسخة حرفية بلا تعديل إلا ما يوسم بـ ⚙️ إصلاح سلسلة): apps/pos/benamor-sales-system/supabase-pos-products-setup.sql
--- الترتيب داخل supabase/migrations هو ترتيب التنفيذ المعتمد لقاعدة فارغة
 
 -- Benamor Sales System - Products setup only
 -- Run this if the Products page says pos_products or pos_product_stock_summary does not exist.
