@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260914-3';
+const APP_BUILD='b20260914-4';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -1142,7 +1142,7 @@ function loadPriceCheckerCart(id){
   closePriceCheckerCarts();
   toast('تم فتح السلة في فاتورة البيع ويمكن تعديلها','success');
 }
-function openSaleProductPicker(){
+function openSaleProductPicker(){ closeQuickSearch();
   productPickerTarget='sale';
   if(q('saleLocation') && appUser?.branch_id) q('saleLocation').value=appUser.branch_id; if(!q('saleLocation').value){toast('اختر فرع البيع أولاً'); return;}
   fillPickerSelect('salePickerCategory','category','كل التصنيفات');
@@ -1774,8 +1774,85 @@ function applyQtyModifier(raw){
   updateSaleTotal(); updateSaleAvailable(inp); selectSaleItemRow(tr);
   return true;
 }
-function handleBarcodeKey(e){if(e.key==='Enter'){e.preventDefault();const raw=q('saleBarcodeInput').value.trim(); if(applyQtyModifier(raw)){q('saleBarcodeInput').value=''; q('saleBarcodeInput').focus(); return;} const p=findProductByCodeOrBarcode(raw); if(p){addOrIncrementSaleProduct(p,1); q('saleBarcodeInput').value=''; q('saleBarcodeInput').focus();}else toast('لم يتم العثور على المنتج أو الباركود');}}
-function handleBarcodeInput(){const v=q('saleBarcodeInput').value.trim(); if(v.startsWith('+')) return; const p=findProductByCodeOrBarcode(v); if(p && v.length>=4){addOrIncrementSaleProduct(p,1); q('saleBarcodeInput').value='';}}
+/* ═══ البحث السريع المنسدل في مربع الباركود ═══
+   نص جزئي (حرفان فأكثر) ⇒ أفضل 8 نتائج تحت المربع:
+   الكود · الاسم · الماركة · المتوفر في فرع البيع · السعر
+   ↑↓ تنقّل · Enter إضافة · Esc إغلاق — المطابقة التامة تضاف فوراً كما كانت */
+let quickSearchTimer=null, quickSearchItems=[], quickSearchIndex=0, quickSearchOpen=false;
+function saleQuickSearchLoc(){ return (canSelectSaleBranch()?q('saleLocation').value:(appUser?.branch_id||q('saleLocation')?.value))||''; }
+function closeQuickSearch(){ quickSearchOpen=false; quickSearchItems=[]; quickSearchIndex=0; clearTimeout(quickSearchTimer); const el=document.getElementById('saleQuickSearch'); if(el) el.remove(); }
+function openQuickSearch(term){
+  const t=String(term||'').trim(); if(t.length<2){closeQuickSearch();return;}
+  const tl=t.toLowerCase(); const scored=[];
+  for(const p of products){
+    if(!p || !smartMatch(t,p._hay)) continue;
+    const code=String(p.code||'').toLowerCase();
+    const sc=(code===tl)?0:(code.startsWith(tl)?1:(normText(p.name).startsWith(normText(t))?2:3));
+    scored.push([sc,p]);
+  }
+  scored.sort((a,b)=>a[0]-b[0]);
+  quickSearchItems=scored.slice(0,8).map(x=>x[1]);
+  if(!quickSearchItems.length){closeQuickSearch();return;}
+  quickSearchIndex=0; renderQuickSearch();
+}
+function renderQuickSearch(){
+  const inp=q('saleBarcodeInput'); if(!inp){closeQuickSearch();return;}
+  ensureQuickSearchStyle();
+  let box=document.getElementById('saleQuickSearch');
+  if(!box){ box=document.createElement('div'); box.id='saleQuickSearch'; document.body.appendChild(box); }
+  const loc=saleQuickSearchLoc();
+  box.innerHTML=quickSearchItems.map((p,i)=>{
+    const avail=getStockQty(loc,p.code);
+    return `<div class="qs-row${i===quickSearchIndex?' qs-active':''}" data-qs="${i}">`+
+      `<b class="ltr qs-code">${esc(p.code)}</b>`+
+      `<span class="qs-name">${esc(p.name)}</span>`+
+      `<span class="qs-brand">${esc(p.brand||'')}</span>`+
+      `<span class="qs-qty" style="color:${avail>0?'#4ade80':(avail<0?'#f87171':'#94a3b8')}">متوفر ${money(avail)}</span>`+
+      `<b class="qs-price">${money(p.retail_price)} ${esc(APP_CONFIG.currency)}</b></div>`;
+  }).join('');
+  if(box.querySelectorAll){ box.querySelectorAll('[data-qs]').forEach(row=>{ row.addEventListener('mousedown',e=>{e.preventDefault(); addQuickSearchItem(Number(row.getAttribute('data-qs')));}); }); }
+  if(inp.getBoundingClientRect){ const r=inp.getBoundingClientRect(); const vw=(typeof window.innerWidth==='number')?window.innerWidth:1280;
+    const w=Math.min(560,Math.max(430,vw*0.45)); box.style.top=(r.bottom+6)+'px'; box.style.width=w+'px'; box.style.left=Math.max(8,Math.min(r.left,vw-w-8))+'px'; box.style.right='auto'; }
+  quickSearchOpen=true;
+}
+function ensureQuickSearchStyle(){ if(document.getElementById('saleQuickSearchStyle')) return; const st=document.createElement('style'); st.id='saleQuickSearchStyle';
+  st.textContent='#saleQuickSearch{position:fixed;z-index:9999;background:#0f172a;border:1px solid #334155;border-radius:10px;box-shadow:0 14px 34px rgba(0,0,0,.5);padding:5px;direction:rtl;font-size:12.5px;max-height:330px;overflow-y:auto;font-family:inherit}#saleQuickSearch .qs-row{display:flex;gap:10px;align-items:center;padding:7px 10px;border-radius:7px;cursor:pointer}#saleQuickSearch .qs-row:hover{background:#1e293b}#saleQuickSearch .qs-active{background:#1d4ed8 !important}#saleQuickSearch .qs-code{color:#7dd3fc;min-width:72px;text-align:left;direction:ltr;font-family:ui-monospace,monospace}#saleQuickSearch .qs-name{flex:1;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px}#saleQuickSearch .qs-brand{color:#94a3b8;white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis}#saleQuickSearch .qs-qty{font-weight:700;white-space:nowrap}#saleQuickSearch .qs-price{color:#fbbf24;white-space:nowrap;direction:ltr}';
+  (document.head||document.documentElement).appendChild(st); }
+function addQuickSearchItem(i){
+  const p=quickSearchItems[i]; if(!p) return;
+  addOrIncrementSaleProduct(p,1);
+  closeQuickSearch();
+  const inp=q('saleBarcodeInput'); if(inp){inp.value=''; inp.focus();}
+}
+q('saleBarcodeInput')?.addEventListener('blur',()=>setTimeout(()=>{ if(quickSearchOpen) closeQuickSearch(); },160));
+
+function handleBarcodeKey(e){
+  if(quickSearchOpen && e.key==='ArrowDown'){e.preventDefault(); quickSearchIndex=Math.min(quickSearchItems.length-1,quickSearchIndex+1); renderQuickSearch(); return;}
+  if(quickSearchOpen && e.key==='ArrowUp'){e.preventDefault(); quickSearchIndex=Math.max(0,quickSearchIndex-1); renderQuickSearch(); return;}
+  if(quickSearchOpen && e.key==='Escape'){e.preventDefault(); if(e.stopPropagation)e.stopPropagation(); closeQuickSearch(); return;}
+  if(e.key==='Enter'){
+    e.preventDefault();
+    const raw=q('saleBarcodeInput').value.trim();
+    if(applyQtyModifier(raw)){q('saleBarcodeInput').value=''; q('saleBarcodeInput').focus(); return;}
+    const p=findProductByCodeOrBarcode(raw);
+    if(p){addOrIncrementSaleProduct(p,1); q('saleBarcodeInput').value=''; q('saleBarcodeInput').focus(); closeQuickSearch(); return;}
+    // لا مطابقة تامة: أضف المحدد من القائمة — أو افتحها فوراً إن لم تُفتح بعد
+    if(quickSearchOpen && quickSearchItems.length){addQuickSearchItem(quickSearchIndex); return;}
+    if(raw.length>=2){ openQuickSearch(raw); if(quickSearchItems.length){addQuickSearchItem(0); return;} }
+    toast('لم يتم العثور على المنتج أو الباركود');
+  }
+}
+function handleBarcodeInput(){
+  const v=q('saleBarcodeInput').value.trim();
+  if(v.startsWith('+')) return;
+  const p=findProductByCodeOrBarcode(v);
+  if(p && v.length>=4){ addOrIncrementSaleProduct(p,1); q('saleBarcodeInput').value=''; closeQuickSearch(); return; }
+  // نص جزئي: قائمة بعد 120 مللي — ولا تظهر أثناء المسح السريع المتتابع
+  clearTimeout(quickSearchTimer);
+  if(v.length>=2 && !window.__scannerRapid){
+    quickSearchTimer=setTimeout(()=>{ const cur=(q('saleBarcodeInput')?.value||'').trim(); if(cur.length>=2 && !window.__scannerRapid) openQuickSearch(cur); else if(cur.length<2) closeQuickSearch(); },120);
+  } else if(v.length<2){ closeQuickSearch(); }
+}
 
 // Hardware barcode scanner guard: rapid key streams are redirected to the barcode input.
 let scannerBuffer='', scannerLastTs=0;
@@ -1784,6 +1861,7 @@ document.addEventListener('keydown',e=>{
   if(e.ctrlKey||e.altKey||e.metaKey) return;
   const now=performance.now();
   const rapid=(now-scannerLastTs)<28;
+  window.__scannerRapid=rapid;
   scannerLastTs=now;
   if(!rapid) scannerBuffer='';
   if(e.key==='Enter'){
@@ -2585,7 +2663,7 @@ function resumeParkedSale(){
 }
 function saleHasContent(){ return q('saleItemsBody') && getSaleItems().length>0; }
 
-function openSalePaymentScreen(){
+function openSalePaymentScreen(){ closeQuickSearch();
   const items=getSaleItems();
   if(!items.length){toast('أضف صنفًا واحدًا على الأقل قبل الدفع');return;}
   updateSaleTotal();
