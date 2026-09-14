@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260914-2';
+const APP_BUILD='b20260914-3';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -1198,6 +1198,22 @@ function openTransferProductPicker(){
   setTimeout(()=>q('salePickerSearch')?.focus(),50);
 }
 
+let _pickerPerfMaps={loc:null,stockRef:null,productsRef:null,compRef:null,availableMap:new Map(),mvMap:new Map(),mpMap:new Map()};
+function pickerPerfMaps(loc){
+  const locKey=String(loc||'');
+  if(_pickerPerfMaps.loc===locKey && _pickerPerfMaps.stockRef===stock && _pickerPerfMaps.productsRef===products && _pickerPerfMaps.compRef===compositeItems) return _pickerPerfMaps;
+  const availableMap=new Map(), mvMap=new Map(), mpMap=new Map();
+  for(const p of products){
+    const k=String(p.code||'');
+    const isComp=compositeItems.some(ci=>ci.composite_code===p.code);
+    availableMap.set(k, isComp?(getCompositeVStockByLocation(p.code,locKey)||0):getStockQty(locKey,p.code));
+    const cost=productCost(p.code); const price=Number(p.retail_price||0);
+    mvMap.set(k, price-cost);
+    mpMap.set(k, cost?(price-cost)/cost*100:0);
+  }
+  _pickerPerfMaps={loc:locKey,stockRef:stock,productsRef:products,compRef:compositeItems,availableMap,mvMap,mpMap};
+  return _pickerPerfMaps;
+}
 function renderSaleProductPicker(){
   const term=(q('salePickerSearch')?.value||'').trim().toLowerCase();
   const cat=q('salePickerCategory')?.value||'', brand=q('salePickerBrand')?.value||'', color=q('salePickerColor')?.value||'', supplier=q('salePickerSupplier')?.value||'';
@@ -1207,10 +1223,11 @@ function renderSaleProductPicker(){
   const pickerCols=['code','name','brand','color','supplier_name','available','retail_price','margin_value','margin_pct'];
   const key=pickerCols[pickerSortIndex]||'available';
   const loc=(productPickerTarget==='proforma'?q('proformaLocation')?.value:(productPickerTarget==='purchase'?q('purchaseLocation')?.value:(productPickerTarget==='transfer'?q('transferFrom')?.value:(canSelectSaleBranch()?q('saleLocation')?.value:(appUser?.branch_id||q('saleLocation')?.value)))))||'';
-  rows.sort((a,b)=>{const av=key==='available'?(isCompositeProduct(a.code)?(getCompositeVStockByLocation(a.code,loc)||0):getStockQty(loc,a.code)):(key==='margin_value'?marginValue(a.code,a.retail_price):(key==='margin_pct'?marginPct(a.code,a.retail_price):(a[key]??''))); const bv=key==='available'?(isCompositeProduct(b.code)?(getCompositeVStockByLocation(b.code,loc)||0):getStockQty(loc,b.code)):(key==='margin_value'?marginValue(b.code,b.retail_price):(key==='margin_pct'?marginPct(b.code,b.retail_price):(b[key]??''))); const na=parseFloat(av), nb=parseFloat(bv); const c=(!isNaN(na)&&!isNaN(nb))?na-nb:String(av).localeCompare(String(bv),'ar'); return pickerSortDir==='asc'?c:-c;});
+  const maps=pickerPerfMaps(loc);
+  rows.sort((a,b)=>{const av=key==='available'?(maps.availableMap.get(String(a.code))||0):(key==='margin_value'?(maps.mvMap.get(String(a.code))||0):(key==='margin_pct'?(maps.mpMap.get(String(a.code))||0):(a[key]??''))); const bv=key==='available'?(maps.availableMap.get(String(b.code))||0):(key==='margin_value'?(maps.mvMap.get(String(b.code))||0):(key==='margin_pct'?(maps.mpMap.get(String(b.code))||0):(b[key]??''))); const na=parseFloat(av), nb=parseFloat(bv); const c=(!isNaN(na)&&!isNaN(nb))?na-nb:String(av).localeCompare(String(bv),'ar'); return pickerSortDir==='asc'?c:-c;});
   const shown=rows.slice(0,250);
   if(!shown.length) pickerSelectedIndex=-1; else if(pickerSelectedIndex>=shown.length) pickerSelectedIndex=shown.length-1;
-q('salePickerBody').innerHTML=shown.map((p,i)=>{const safe=String(p.code||'').replace(/'/g,"\\'"); const isComp=isCompositeProduct(p.code); const available=isComp?(getCompositeVStockByLocation(p.code,loc)||0):(loc?getStockQty(loc,p.code):0); return `<tr class="${i===pickerSelectedIndex?'selected-row':''}" ${isComp?'style="box-shadow:inset 3px 0 0 #7c3aed"':''} onclick="selectSalePickerRow(${i},this)" ondblclick="addSaleProductFromPicker('${safe}',1)"><td class="ltr"><b ${isComp?'style="color:#7c3aed"':''}>${esc(p.code||'')}</b><div class="mini ltr">${esc(p.barcode||p.product_no||'')}</div></td><td>${esc(p.name)}${isComp?' <span style="background:#ede9fe;color:#6d28d9;border-radius:6px;padding:1px 6px;font-size:10px;font-weight:800">مركّب</span>':''}</td><td>${esc(p.brand)}<div class="mini ltr">${esc(p.model)}</div></td><td>${esc(p.color)}</td><td>${esc(p.supplier_name)}</td><td ${isComp?'style="color:#7c3aed"':''}><b>${money(available)}</b></td><td>${money(p.retail_price)}</td><td>${money(p._mv)}</td><td>${money(p._mp)}%</td><td><button class="btn secondary" type="button" onclick="event.stopPropagation();addSaleProductFromPicker('${safe}')">إضافة</button></td></tr>`}).join('') || '<tr><td colspan="10">لا توجد منتجات مطابقة للبحث أو الفلاتر.</td></tr>';
+q('salePickerBody').innerHTML=shown.map((p,i)=>{const safe=String(p.code||'').replace(/'/g,"\\'"); const isComp=isCompositeProduct(p.code); const available=isComp?(getCompositeVStockByLocation(p.code,loc)||0):(loc?(maps.availableMap.get(String(p.code))||0):0); return `<tr class="${i===pickerSelectedIndex?'selected-row':''}" ${isComp?'style="box-shadow:inset 3px 0 0 #7c3aed"':''} onclick="selectSalePickerRow(${i},this)" ondblclick="addSaleProductFromPicker('${safe}',1)"><td class="ltr"><b ${isComp?'style="color:#7c3aed"':''}>${esc(p.code||'')}</b><div class="mini ltr">${esc(p.barcode||p.product_no||'')}</div></td><td>${esc(p.name)}${isComp?' <span style="background:#ede9fe;color:#6d28d9;border-radius:6px;padding:1px 6px;font-size:10px;font-weight:800">مركّب</span>':''}</td><td>${esc(p.brand)}<div class="mini ltr">${esc(p.model)}</div></td><td>${esc(p.color)}</td><td>${esc(p.supplier_name)}</td><td ${isComp?'style="color:#7c3aed"':''}><b>${money(available)}</b></td><td>${money(p.retail_price)}</td><td>${money(p._mv)}</td><td>${money(p._mp)}%</td><td><button class="btn secondary" type="button" onclick="event.stopPropagation();addSaleProductFromPicker('${safe}')">إضافة</button></td></tr>`}).join('') || '<tr><td colspan="10">لا توجد منتجات مطابقة للبحث أو الفلاتر.</td></tr>';
   q('salePickerInfo').textContent=`عرض ${shown.length} من ${rows.length} منتج` + (rows.length>250?' - استخدم البحث أو الفلاتر لتضييق النتائج':'');
   setupTableSorting();
 }
@@ -1223,9 +1240,14 @@ function selectSalePickerRow(index,tr){
 
 function handleSalePickerKey(e){
   const rows=[...q('salePickerBody').querySelectorAll('tr')];
-  if(e.key==='ArrowDown'){e.preventDefault();pickerSelectedIndex=Math.min(rows.length-1,pickerSelectedIndex+1);renderSaleProductPicker();}
-  if(e.key==='ArrowUp'){e.preventDefault();pickerSelectedIndex=Math.max(0,pickerSelectedIndex-1);renderSaleProductPicker();}
+  if(e.key==='ArrowDown'){e.preventDefault();pickerSelectedIndex=Math.min(rows.length-1,pickerSelectedIndex+1);pickerApplySelection(rows);}
+  if(e.key==='ArrowUp'){e.preventDefault();pickerSelectedIndex=Math.max(0,pickerSelectedIndex-1);pickerApplySelection(rows);}
   if(e.key==='Enter'){e.preventDefault();const btn=q('salePickerBody').querySelectorAll('button')[pickerSelectedIndex]; if(btn) btn.click();}
+}
+function pickerApplySelection(rows){
+  // تحديث التحديد بتبديل الأصناف فقط — دون إعادة فرز/رسم (كان 70+ مللي لكل سهم)
+  rows.forEach(r=>r.classList.remove('selected-row'));
+  const tr=rows[pickerSelectedIndex]; if(tr) tr.classList.add('selected-row');
 }
 
 function addSaleProductFromPicker(code,qtyOverride=null){
@@ -1504,9 +1526,14 @@ function renderStock(){
   }).join('') || '<tr><td colspan="9">لا يوجد مخزون مطابق للفلاتر. أدخل فاتورة شراء أولاً.</td></tr>';
 }
 
+let _stockQtyCache={arr:null,maps:new Map()};
 function getStockQty(location_id, product_code){
-  const r=stock.find(x=>x.location_id===location_id && String(x.product_code||'').toLowerCase()===String(product_code||'').toLowerCase());
-  return Number(r?.qty||0);
+  // خريطة مخبأة لكل فرع — تُبنى مرة عند تغيّر stock فقط (كانت مسحاً خطياً لكل نداء)
+  if(_stockQtyCache.arr!==stock){_stockQtyCache={arr:stock,maps:new Map()};}
+  const locKey=String(location_id);
+  let m=_stockQtyCache.maps.get(locKey);
+  if(!m){m=new Map(); for(const x of stock){ if(String(x.location_id)===locKey){ const k=String(x.product_code||'').toLowerCase(); if(!m.has(k)) m.set(k,Number(x.qty)||0); } } _stockQtyCache.maps.set(locKey,m);}
+  return m.get(String(product_code||'').toLowerCase())||0;
 }
 async function adjustStockOnly(location_id, item, qtyChange){
   const code=encodeURIComponent(item.product_code);
@@ -3361,7 +3388,12 @@ function repScopeData(){
 }
 function emptyRow(cols,msg='لا توجد بيانات.'){return `<tr><td colspan="${cols}">${esc(msg)}</td></tr>`}
 function profitClass(n){return Number(n||0)>=0?'stock-positive':'stock-negative'}
-function productByCode(code){return products.find(p=>String(p.code||'').toLowerCase()===String(code||'').toLowerCase())||null}
+let _productByCodeMap={arr:null,m:new Map()};
+function productByCode(code){
+  // خريطة مخبأة — تُبنى مرة عند تغيّر products فقط (كانت مسحاً خطياً لكل نداء)
+  if(_productByCodeMap.arr!==products){const m=new Map(); for(const p of products){ const k=String(p.code||'').toLowerCase(); if(!m.has(k)) m.set(k,p); } _productByCodeMap={arr:products,m};}
+  return _productByCodeMap.m.get(String(code||'').toLowerCase())||null;
+}
 function itemProfitRows(){
   const d=repScopeData();
   const m={};
