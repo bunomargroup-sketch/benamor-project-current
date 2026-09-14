@@ -482,3 +482,9 @@
 #sales .sale-finish-bar .btn.secondary{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.28)}
 #sales .sale-finish-bar .btn.secondary:hover{background:rgba(255,255,255,.2)}
 @media (max-width:760px){#sales .sale-finish-bar .finish-total b{font-size:24px}#sales #salePayBtn{font-size:17px;padding:12px 20px}}
+
+    /* (ج) زر الآجل وسطر المتبقي البارز في شاشة الدفع */
+    .quick-pay-buttons .credit-pay-btn{background:#fffbeb;color:#b45309;border:1px solid #fde68a;font-weight:700;font-family:inherit}
+    #saleCreditLine{padding:9px 12px;border-radius:8px;background:color-mix(in srgb,var(--warn) 10%,transparent);font-weight:700;font-size:14px}
+    /* (ب) نافذة تحصيل الفاتورة */
+    #invoicePaymentInfo .card{padding:8px 12px;margin:0}

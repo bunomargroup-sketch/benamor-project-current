@@ -289,6 +289,7 @@
               <div class="sale-group">
                 <div class="sale-group-title"><i class="ti ti-user"></i> الزبون</div>
                 <div class="sale-group-grid">
+                  <div style="grid-column:1/-1"><label>بحث سريع في الزبائن (اسم أو هاتف)</label><div class="row" style="gap:6px;flex-wrap:nowrap"><input id="saleCustomerSearch" placeholder="اكتب للتصفية…" oninput="filterSaleCustomerOptions()" style="flex:1"><button class="btn secondary" type="button" onclick="clearSaleCustomerSelection()" title="مسح الزبون (زبون نقدي)">✖ مسح الزبون</button></div></div>
                   <div><label>زبون موجود</label><select id="saleCustomer" onchange="renderSaleCustomerInfo();updateSaleTotal()"></select></div>
                   <div><label>أو اسم زبون جديد</label><input id="saleNewCustomerName" placeholder="مطلوب إذا يوجد دين"></div>
                   <div><label>هاتف الزبون</label><input id="saleNewCustomerPhone" class="ltr" placeholder="اختياري"></div>
@@ -363,7 +364,8 @@
                 <div><label>حساب البطاقة</label><select id="saleCardAccount"></select></div>
                 <div><label>خصم الفاتورة (قيمة)</label><input id="saleDiscount" type="text" inputmode="decimal" value="0" oninput="updateSaleTotal()"></div>
                 <div class="pos-payment-note mini" id="salePaymentDetected">طريقة الدفع تحفظ تلقائيًا حسب المبالغ المدخلة</div>
-                <div class="quick-pay-buttons" style="grid-column:1/-1"><button type="button" onclick="setFullPayment('cash')">دفع كامل كاش</button><button type="button" onclick="setFullPayment('bank')">دفع كامل تحويل</button><button type="button" onclick="setFullPayment('card')">دفع كامل بطاقة</button><button type="button" onclick="setCreditSale()">آجل / دين</button></div>
+                <div class="quick-pay-buttons" style="grid-column:1/-1"><button type="button" onclick="setFullPayment('cash')">دفع كامل كاش</button><button type="button" onclick="setFullPayment('bank')">دفع كامل تحويل</button><button type="button" onclick="setFullPayment('card')">دفع كامل بطاقة</button><button type="button" class="credit-pay-btn" onclick="setCreditSale()">🕒 آجل / دين</button></div>
+                <div class="pos-payment-note" id="saleCreditLine" style="grid-column:1/-1;display:none"></div>
                 <div class="pos-mini-keypad">
                   <button type="button" onclick="keypadInput('7')">7</button><button type="button" onclick="keypadInput('8')">8</button><button type="button" onclick="keypadInput('9')">9</button><button type="button" class="op" onclick="keypadBackspace()">⌫</button>
                   <button type="button" onclick="keypadInput('4')">4</button><button type="button" onclick="keypadInput('5')">5</button><button type="button" onclick="keypadInput('6')">6</button><button type="button" class="op" onclick="keypadClear()">C</button>
@@ -407,7 +409,7 @@
             <span class="mini" id="selectedSaleInfo">اختر فاتورة من الجدول أولاً</span>
             <span class="mini ctx-hint"><i class="ti ti-mouse"></i> اضغط بزر الفأرة الأيمن على أي صف لعرض قائمة الإجراءات</span>
           </div>
-          <div class="table-scroll"><table><thead><tr><th>رقم</th><th>التاريخ</th><th>الفرع</th><th>الزبون</th><th>طريقة الدفع</th><th>الإجمالي</th><th>المدفوع</th><th>الدين</th></tr></thead><tbody id="salesBody"></tbody></table></div>
+          <div class="table-scroll"><table><thead><tr><th>رقم</th><th>التاريخ</th><th>الفرع</th><th>الزبون</th><th>طريقة الدفع</th><th>الإجمالي</th><th>المدفوع</th><th>الدين</th><th>إجراء</th></tr></thead><tbody id="salesBody"></tbody></table></div>
         </div>
       </section>
 
@@ -958,6 +960,25 @@
         <div class="row"><button class="btn" id="loginBtn" onclick="loginPOS(false)">دخول</button></div>
         <div id="loginHelp">اختر الفرع ثم اكتب المعرّف والكود للدخول.</div>
       </div>
+    </div>
+  </div>
+  <div class="modal" id="invoicePaymentModal">
+    <div class="modal-card" style="max-width:560px">
+      <div class="modal-head"><div><h2 style="margin:0">💵 تحصيل دفعة على فاتورة</h2><div class="mini">معاملة ذرّية واحدة: الدفعة + الفاتورة + الحركة المالية + كشف الزبون + سجل التدقيق</div></div><button class="btn secondary" type="button" onclick="q('invoicePaymentModal').classList.remove('show')">إغلاق</button></div>
+      <div id="invoicePaymentInfo" class="grid" style="gap:8px;margin-bottom:10px"></div>
+      <form id="invoicePaymentForm" class="form">
+        <div><label>كاش</label><input id="invPayCash" type="text" inputmode="decimal" value="0" oninput="updateInvoicePaymentTotals()"></div>
+        <div><label>تحويل مصرفي</label><input id="invPayBank" type="text" inputmode="decimal" value="0" oninput="updateInvoicePaymentTotals()"></div>
+        <div><label>بطاقة</label><input id="invPayCard" type="text" inputmode="decimal" value="0" oninput="updateInvoicePaymentTotals()"></div>
+        <div><label>حساب الكاش</label><select id="invPayCashAccount"></select></div>
+        <div><label>حساب التحويل</label><select id="invPayBankAccount"></select></div>
+        <div><label>حساب البطاقة</label><select id="invPayCardAccount"></select></div>
+        <div><label>تاريخ الدفعة</label><input id="invPayDate" type="date" required></div>
+        <div style="grid-column:1/-1"><label>ملاحظة</label><input id="invPayNotes" placeholder="اختياري"></div>
+        <div style="grid-column:1/-1" class="row" style="gap:8px"><button class="btn secondary" type="button" onclick="fillInvoicePaymentFull()">سداد كامل (المتبقي في الكاش)</button><span id="invPayRemaining" class="mini" style="align-self:center"></span></div>
+        <div style="grid-column:1/-1" id="invPayError" class="mini" style="color:var(--bad);display:none"></div>
+        <button class="btn" type="submit">تسجيل الدفعة</button>
+      </form>
     </div>
   </div>
   <div class="modal" id="expenseEditModal">
