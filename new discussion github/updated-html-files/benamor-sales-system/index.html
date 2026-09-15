@@ -19,7 +19,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<link rel="stylesheet" href="app.css?v=20260915-1522">
+<link rel="stylesheet" href="app.css?v=20260915-1525">
 </head>
 <body class="auth-locked">
   <header>
@@ -297,9 +297,8 @@
                 </div>
               </div>
               <div class="sale-group">
-                <div class="sale-group-title"><i class="ti ti-barcode"></i> الإدخال السريع</div>
+                <div class="sale-group-title"><i class="ti ti-notes"></i> ملاحظات الفاتورة والطباعة</div>
                 <div class="sale-group-grid">
-                  <div><label>امسح الباركود</label><input id="saleBarcodeInput" class="ltr barcode-input" placeholder="امسح الباركود ثم Enter" onkeydown="handleBarcodeKey(event)" oninput="handleBarcodeInput()"></div>
                   <div><label>ملاحظات</label><input id="saleNotes" placeholder="اختياري"></div>
                   <div><label>الطباعة</label><select id="salePrintAfterSave"><option value="yes">اطبع بعد الحفظ</option><option value="no">حفظ بدون طباعة</option></select></div>
                 </div>
@@ -330,6 +329,10 @@
                 <div class="cashier-info-grid">
                   <div class="info-card"><h3>رصيد الزبون</h3><div class="num" id="saleCustomerBalance">0.00</div><div class="mini" id="saleCustomerInfo">زبون نقدي / بدون زبون</div></div>
                   <div class="info-card"><h3>مخزون المنتج المحدد</h3><div id="saleStockInfo" class="mini">اختر منتجًا لعرض المخزون في الفروع</div></div>
+                </div>
+                <div class="sale-barcode-strip">
+                  <label for="saleBarcodeInput"><i class="ti ti-barcode"></i> امسح الباركود أو اكتب الكود ثم Enter</label>
+                  <input id="saleBarcodeInput" class="ltr barcode-input" placeholder="امسح الباركود ثم Enter" onkeydown="handleBarcodeKey(event)" oninput="handleBarcodeInput()">
                 </div>
                 <div class="tools" style="margin-top:12px">
                   <h2 style="font-size:18px;margin:0">الأصناف</h2>
@@ -1170,6 +1173,6 @@
 
 
 
-<script src="app.js?v=20260915-1522"></script>
+<script src="app.js?v=20260915-1525"></script>
 </body>
 </html>

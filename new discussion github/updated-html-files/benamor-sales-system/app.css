@@ -493,3 +493,9 @@
     .sub-tab{padding:7px 16px;font-size:13.5px}
     .sub-tab.active{background:#0f2a5f;color:#fff}
     #returnsTotalFoot td{border-top:2px solid var(--border);background:color-mix(in srgb,var(--bad) 7%,transparent);font-weight:700}
+
+    /* (المهمة ٣) شريط الباركود فوق قائمة الأصناف — أول ما تقع عليه العين */
+    .sale-barcode-strip{margin-top:12px;display:flex;flex-direction:column;gap:4px}
+    .sale-barcode-strip label{font-size:13px;font-weight:700;color:var(--muted,#475569);display:flex;align-items:center;gap:6px}
+    .sale-barcode-strip .barcode-input{width:100%;min-height:52px;font-size:19px;font-weight:700;padding:10px 14px;border-radius:10px}
+    @media (max-width:420px){ .sale-barcode-strip .barcode-input{font-size:17px;min-height:48px} .sale-barcode-strip label{font-size:12px} }
