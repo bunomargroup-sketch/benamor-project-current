@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260915-1322';
+const APP_BUILD='b20260915-1455';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -415,7 +415,7 @@ function applyTransferLocally(saved, body, items){
 /* مرآة post_sale_return_transaction */
 function applyReturnLocally(ret, body, items, sale){
   const total=items.reduce((a,x)=>a+Number(x.line_total||0),0);
-  saleReturns.unshift({...body,id:ret.id,return_no:ret.return_no,total,created_at:new Date().toISOString()});
+  saleReturns.unshift({...body,id:ret.id,total,created_at:new Date().toISOString()}); /* return_no غير موجود في الإنتاج — المعرف المختصر يكفي (قرار ٥-ب) */
   items.forEach(it=>{ saleReturnItems.push({...it,return_id:ret.id}); localAdjustStock(body.location_id,it.product_code,it.product_name,Number(it.qty||0),'return_customer','pos_sale_returns',ret.id,'مرتجع زبون'); });
   if(body.refund_method==='credit_reduction'){
     customerLedger.unshift({customer_id:body.customer_id,entry_date:body.return_date,entry_type:'return',description:'فاتورة مرتجع بيع رقم '+(sale?.invoice_no||''),debit:0,credit:total,reference_table:'pos_sale_returns',reference_id:ret.id,created_at:new Date().toISOString()});
@@ -771,7 +771,7 @@ async function loadAll(){
   finally{showLoading(false);window.__busy=false}
 }
 
-function renderAll(){renderDashboard();renderLocations();renderProductDatalist();renderProducts();renderSuppliers();renderCustomers();fillSupplierSelects();renderLedger();renderCustomerLedger();renderPayments();renderSales();renderProformas();renderPurchases();renderStock();renderTransfers();renderFinance();renderReports();renderRoles();renderStatusBar();renderSettingsExpenseCategories();renderProductOptionSettings();refreshAuditLog();renderComposites();renderStockCount();renderExpensesList();applyPermissions();setTimeout(setupTableSorting,0)}
+function renderAll(){renderDashboard();renderLocations();renderProductDatalist();renderProducts();renderSuppliers();renderCustomers();fillSupplierSelects();renderLedger();renderCustomerLedger();renderPayments();renderSales();renderReturns();renderProformas();renderPurchases();renderStock();renderTransfers();renderFinance();renderReports();renderRoles();renderStatusBar();renderSettingsExpenseCategories();renderProductOptionSettings();refreshAuditLog();renderComposites();renderStockCount();renderExpensesList();applyPermissions();setTimeout(setupTableSorting,0)}
 function renderDashboard(){
   q('branchesCount').textContent=locations.filter(x=>x.location_type==='branch').length;
   q('warehousesCount').textContent=locations.filter(x=>x.location_type==='warehouse').length;
@@ -2086,6 +2086,151 @@ function clearSaleFilters(){['saleListSearch','saleFilterFrom','saleFilterTo','s
 function showDueSalesOnly(){if(q('saleFilterPayment'))q('saleFilterPayment').value='due'; renderSales();}
 function selectSaleRow(id){selectedSaleId=id;renderSales()}
 
+/* ═══════════ (٢) قائمة المرتجعات — تبويب فرعي داخل «فواتير البيع» ═══════════
+   تدمج مصدرين: pos_sale_returns (المستندات) + حركات customer_refund المرجعة
+   لـ pos_sales (مرتجعات بفواتير سالبة تاريخية بلا مستند — تُعرض بوسمها ولا
+   يُخترع لها مستند). لا حذف في هذه الجولة (يحتاج عكساً ذرّياً للحركة والمخزون). */
+function showSalesSub(which){
+  if(q('salesInvoicesPanel')) q('salesInvoicesPanel').style.display=which==='invoices'?'':'none';
+  if(q('salesReturnsPanel')) q('salesReturnsPanel').style.display=which==='returns'?'':'none';
+  const bi=q('subTabInvoicesBtn'), br=q('subTabReturnsBtn');
+  if(bi) bi.classList.toggle('active',which==='invoices');
+  if(br) br.classList.toggle('active',which==='returns');
+  if(which==='returns') renderReturns();
+}
+function returnAccountName(retId){
+  const mv=financeMovements.find(m=>m.movement_type==='customer_refund' && m.reference_table==='pos_sale_returns' && m.reference_id===retId);
+  const acc=mv&&financeAccounts.find(a=>a.id===mv.account_id);
+  return {name:acc?.name||'—', mv};
+}
+function returnRecorder(retId){
+  const {mv}=returnAccountName(retId);
+  const m=String(mv?.notes||'').match(/المستخدم:\s*([^|-]+)/);
+  return m?m[1].trim():'—';
+}
+function returnMatchesFilters(r,origInv){
+  const from=q('retFilterFrom')?.value, to=q('retFilterTo')?.value, br=q('retFilterBranch')?.value, m=q('retFilterMethod')?.value, sr=(q('retFilterSearch')?.value||'').trim();
+  if(from && String(r.return_date||'')<from) return false;
+  if(to && String(r.return_date||'')>to) return false;
+  if(br && r.location_id!==br) return false;
+  if(m && r.refund_method!==m) return false;
+  if(sr && !String(origInv||'').includes(sr)) return false;
+  return true;
+}
+function resetReturnFilters(){
+  ['retFilterFrom','retFilterTo','retFilterSearch'].forEach(id=>{if(q(id))q(id).value='';});
+  if(q('retFilterBranch')) q('retFilterBranch').value='';
+  if(q('retFilterMethod')) q('retFilterMethod').value='';
+  renderReturns();
+}
+function renderReturns(){
+  if(q('retFilterBranch') && !q('retFilterBranch').options.length){
+    q('retFilterBranch').innerHTML='<option value="">كل الفروع</option>'+locations.map(l=>`<option value="${l.id}">${esc(l.name)}</option>`).join('');
+  }
+  const body=q('returnsBody'); if(!body) return;
+  const locMap=new Map(locations.map(l=>[l.id,l.name]));
+  const accMap=new Map(financeAccounts.map(a=>[a.id,a.name]));
+  const saleMap=new Map(sales.map(x=>[x.id,x]));
+  const rows=[];
+  /* ١) مستندات المرتجعات الحقيقية */
+  saleReturns.forEach(r=>{
+    const orig=saleMap.get(r.sale_id);
+    if(!returnMatchesFilters(r,orig?.invoice_no)) return;
+    rows.push({r, origInv:orig?.invoice_no||'—', negativeDoc:false, amount:Number(r.total||0)});
+  });
+  /* ٢) مرتجعات بفواتير سالبة تاريخية: customer_refund مرجعها pos_sales (بلا مستند مرتجع) */
+  financeMovements.filter(m=>m.movement_type==='customer_refund' && m.reference_table==='pos_sales' && !saleReturns.some(r=>r.id===m.reference_id)).forEach(m=>{
+    const orig=saleMap.get(m.reference_id);
+    const d=String(m.movement_date||'').slice(0,10);
+    const r={id:m.reference_id, sale_id:m.reference_id, return_date:d, location_id:orig?.location_id, refund_method:'negative_invoice', total:Number(m.amount||0)};
+    if(!returnMatchesFilters(r,orig?.invoice_no)) return;
+    rows.push({r, origInv:orig?.invoice_no||'—', negativeDoc:true, amount:Number(m.amount||0), accountName:accMap.get(m.account_id)||'—', recorder:'—'});
+  });
+  rows.sort((a,b)=>String(b.r.return_date||'').localeCompare(String(a.r.return_date||'')));
+  if(!rows.length){
+    body.innerHTML='<tr><td colspan="9">لا توجد مرتجعات مطابقة للفلاتر.</td></tr>';
+    if(q('returnsTotalFoot')) q('returnsTotalFoot').innerHTML='<tr><td colspan="9" class="mini">—</td></tr>';
+    if(q('returnsListInfo')) q('returnsListInfo').textContent='';
+    return;
+  }
+  const total=rows.reduce((a,x)=>a+x.amount,0);
+  body.innerHTML=rows.map(({r,origInv,negativeDoc,amount,accountName,recorder})=>{
+    const orig=saleMap.get(r.sale_id)||saleMap.get(r.id);
+    const cust=customers.find(c=>c.id===r.customer_id);
+    const an=negativeDoc?accountName:(accountName||returnAccountName(r.id).name);
+    const rec=negativeDoc?recorder:returnRecorder(r.id);
+    const safe=String(r.id||'').replace(/'/g,"\'");
+    const badge=negativeDoc?' <span class="badge red" title="حركة استرداد أُنشئت بفاتورة سالبة قبل تحصين المنظومة — لا يوجد مستند مرتجع لها">بفاتورة سالبة (بلا مستند)</span>':'';
+    return `<tr data-ret="${safe}" data-sale="${String(r.sale_id||'').replace(/'/g,"\\'")}"><td>${esc(r.return_date)}</td><td class="ltr"><b>${esc(String(r.id).slice(0,8))}</b>${badge}</td><td class="ltr">${esc(origInv)}</td><td>${esc(cust?.name||'زبون نقدي')}</td><td>${esc(locMap.get(r.location_id)||'—')}</td><td><b>${money(amount)}</b></td><td>${negativeDoc?'فاتورة سالبة':esc(typeLabel(r.refund_method))}</td><td>${esc(an)}</td><td>${esc(rec)}</td></tr>`;
+  }).join('');
+  if(q('returnsTotalFoot')) q('returnsTotalFoot').innerHTML=`<tr><td colspan="5"><b>إجمالي المرتجعات المعروضة</b></td><td><b>${money(total)} ${APP_CONFIG.currency}</b></td><td colspan="3" class="mini">${rows.length} مرتجعاً</td></tr>`;
+  if(q('returnsListInfo')) q('returnsListInfo').textContent=`النتائج: ${rows.length}`;
+}
+function openReturnDetails(id){
+  const r=saleReturns.find(x=>x.id===id); if(!r){toast('حركة استرداد تاريخية بلا مستند مرتجع — راجع الفاتورة الأصلية','info');return;}
+  const orig=sales.find(x=>x.id===r.sale_id); const cust=customers.find(c=>c.id===r.customer_id); const loc=locations.find(l=>l.id===r.location_id);
+  const items=saleReturnItems.filter(i=>i.return_id===id);
+  const {name}=returnAccountName(id);
+  toast(`مرتجع ${String(id).slice(0,8)} — فاتورة ${orig?.invoice_no||'—'} — ${cust?.name||'زبون نقدي'} — ${money(r.total)} ${APP_CONFIG.currency} — ${typeLabel(r.refund_method)} — ${loc?.name||''} — ${items.length} صنف — حساب: ${name}`,'info');
+}
+async function printReturn(id){
+  const r=saleReturns.find(x=>x.id===id); if(!r){toast('لا يوجد مستند مرتجع لهذه الحركة التاريخية','warn');return;}
+  try{
+    const items=saleReturnItems.filter(i=>i.return_id===id);
+    const orig=sales.find(x=>x.id===r.sale_id); const cust=customers.find(c=>x.id===r.customer_id); const loc=locations.find(x=>x.id===r.location_id);
+    const {name}=returnAccountName(id);
+    const rows=items.map((it,i)=>`<tr><td class="n">${i+1}</td><td class="code ltr">${esc(it.product_code)}</td><td class="name">${esc(it.product_name)}</td><td class="n">${money(it.qty)}</td><td class="n">${money(it.unit_price)}</td><td class="n ttl">${money(it.line_total)}</td></tr>`).join('');
+    const dp=String(r.return_date||'').split('-'); const dateDisp=(dp.length===3)?(dp[2]+'-'+dp[1]+'-'+dp[0]):String(r.return_date||'');
+    const html=`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>فاتورة مرتجع ${esc(String(id).slice(0,8))}</title><style>
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
+*{box-sizing:border-box}body{font-family:'Cairo',Tahoma,Arial,sans-serif;margin:0;color:#0f172a;background:#f1f5f9;line-height:1.55}
+.bar{max-width:800px;margin:14px auto 0;display:flex;justify-content:flex-end;gap:8px;padding:0 4px}
+.pbtn{background:#1d4ed8;color:#fff;border:0;border-radius:8px;padding:9px 18px;font:inherit;font-weight:700;cursor:pointer}
+.pbtn.ghost{background:#fff;color:#1d4ed8;border:1px solid #c7d2fe}
+.sheet{max-width:800px;margin:14px auto 40px;background:#fff;padding:34px 38px;border-radius:10px;box-shadow:0 8px 30px rgba(2,6,23,.10)}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding-bottom:12px}
+.brand h1{margin:0;color:#0f2a5f;font-size:27px;font-weight:800}.brand .sub{color:#64748b;font-size:13px;font-weight:600;margin-top:2px}
+.doc{text-align:left}.doc .title{font-size:29px;font-weight:800;color:#b91c1c}.doc .invno{direction:ltr;font-size:16.5px;font-weight:700;color:#1d4ed8;margin-top:4px}.doc .date{direction:ltr;color:#475569;font-size:13.5px;margin-top:2px}
+.badge{display:inline-block;border-radius:6px;padding:4px 11px;font-size:12.5px;font-weight:700;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;margin-top:8px}
+.brandline{height:3px;background:linear-gradient(90deg,#b91c1c,#ef4444);border-radius:2px;margin-bottom:14px}
+.meta{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid #eef1f6;padding:10px 0 12px;margin-bottom:16px}
+.meta .f{padding:0 14px}.meta .f+.f{border-right:1px solid #eef1f6}.meta .f:first-child{padding-right:0}
+.meta .lbl{color:#94a3b8;font-size:12px;font-weight:600;margin-bottom:1px}.meta .val{color:#0f172a;font-size:15px;font-weight:700}
+table.items{width:100%;border-collapse:collapse;margin:0 0 18px}.items thead th{background:#f4f6fa;color:#334155;font-size:13px;font-weight:700;padding:11px 10px;border-bottom:2px solid #dbe3ee;text-align:right}
+.items thead th.n{text-align:center}.items td{padding:11px 10px;border-bottom:1px solid #eef1f6;font-size:14.5px}
+.items .n{text-align:center;font-variant-numeric:tabular-nums;direction:ltr}.items .code{direction:ltr;text-align:center;color:#64748b;font-size:12.5px;font-family:ui-monospace,monospace}.items .name{font-weight:600}.items .ttl{font-weight:700}
+.totals{width:312px;margin-inline-start:auto;margin-bottom:16px}.totals .grand{display:flex;justify-content:space-between;padding:10px 12px;font-size:17px;font-weight:800;color:#b91c1c}
+.ft{margin-top:24px;border-top:1px solid #eef1f6;padding-top:11px;text-align:center;color:#0f2a5f;font-weight:700;font-size:14px}
+@media print{body{background:#fff}.bar{display:none}.sheet{box-shadow:none;margin:0;max-width:none;border-radius:0;padding:14mm 15mm}.items thead{display:table-header-group}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+@page{size:A4;margin:0}
+</style></head><body><div class="bar"><button class="pbtn" onclick="window.print()">طباعة</button><button class="pbtn ghost" onclick="window.close()">إغلاق</button></div>
+<div class="sheet"><div class="hd"><div class="brand"><h1>${esc(APP_CONFIG.businessName)}</h1><div class="sub">${esc(APP_CONFIG.tagline)}</div></div>
+<div class="doc"><div class="title">فاتورة مرتجع بيع</div><div class="invno">${esc(String(id).slice(0,8))}</div><div class="date">${esc(dateDisp)}</div><span class="badge">استرداد ${esc(typeLabel(r.refund_method))}${name?' — '+esc(name):''}</span></div></div>
+<div class="brandline"></div>
+<div class="meta"><div class="f"><div class="lbl">الزبون</div><div class="val">${esc(cust?.name||'زبون نقدي')}</div></div><div class="f"><div class="lbl">الهاتف</div><div class="val" dir="ltr" style="text-align:right">${esc(cust?.phone||'—')}</div></div><div class="f"><div class="lbl">الفرع</div><div class="val">${esc(loc?.name||'-')}</div></div><div class="f"><div class="lbl">الفاتورة الأصلية</div><div class="val ltr">${esc(orig?.invoice_no||'—')}</div></div></div>
+<table class="items"><thead><tr><th class="n">#</th><th>الكود</th><th>الصنف</th><th class="n">الكمية</th><th class="n">سعر الوحدة</th><th class="n">الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
+<div class="totals"><div class="grand"><span>إجمالي المرتجع</span><b>${money(r.total)} ${APP_CONFIG.currency}</b></div></div>
+<div class="ft">شكرًا لتعاملكم معنا — ${esc(APP_CONFIG.businessName)}</div></div></body></html>`;
+    showInAppPrint(html);
+  }catch(err){console.error(err);toast('خطأ في طباعة المرتجع: '+err.message,'error')}
+}
+function goReturnToOriginalInvoice(saleId){
+  if(!saleId){toast('لا يمكن تحديد الفاتورة الأصلية','warn');return;}
+  if(!sales.some(x=>x.id===saleId)){toast('الفاتورة الأصلية غير محمّلة في القائمة — استعمل زر تحديث ثم أعد المحاولة','warn');return;}
+  showSalesSub('invoices'); selectSaleRow(saleId); toast('حددت الفاتورة الأصلية — بياناتها في شريط المعلومات','info');
+}
+q('returnsBody')?.addEventListener('contextmenu',e=>{
+  const tr=e.target.closest('tr'); if(!tr||!tr.dataset.ret) return;
+  e.preventDefault();
+  const id=tr.dataset.ret, saleId=tr.dataset.sale;
+  const isDoc=saleReturns.some(x=>x.id===id);
+  const items=[{head:'مرتجع '+String(id).slice(0,8)}];
+  items.push({label:'👁️ عرض التفاصيل',icon:'ti-eye',action:()=>openReturnDetails(id)});
+  if(isDoc) items.push({label:'🖨️ طباعة',icon:'ti-printer',action:()=>printReturn(id)});
+  if(saleId) items.push({label:'➡️ الانتقال إلى الفاتورة الأصلية',icon:'ti-arrow-left',action:()=>goReturnToOriginalInvoice(saleId)});
+  showCtxMenu(e.clientX,e.clientY,items);
+});
+
 /* ═══════════ (ب) تحصيل دفعة على فاتورة قائمة — ذرّي عبر post_invoice_payment ═══════════ */
 let editingInvoicePaymentId=null;
 function openInvoicePayment(id){
@@ -2451,10 +2596,13 @@ function setFullPayment(type){
   q('salePaymentMethod').value=type==='bank'?'bank_transfer':type==='card'?'card':'cash';
   focusPay(type); updateSaleTotal();
 }
-function defaultFinanceAccountFor(method){
-  if(method==='cash') return financeAccounts.find(a=>a.account_type==='cash' && a.location_id===appUser?.branch_id)?.id || financeAccounts.find(a=>a.account_type==='cash')?.id || null;
-  if(method==='bank_transfer') return financeAccounts.find(a=>a.account_type==='bank')?.id || financeAccounts.find(a=>a.account_type==='card')?.id || null;
-  if(method==='card') return financeAccounts.find(a=>a.account_type==='card')?.id || financeAccounts.find(a=>a.account_type==='bank')?.id || null;
+function defaultFinanceAccountFor(method, location_id){
+  /* ⚠ وسيط location_id صريح (اختياري — يتراجع لفرع المستخدم):
+     مرتجع السراج يخرج من خزينة السراج حتى لو سجّله مديرٌ فرعه 11 يونيو */
+  const loc=location_id||appUser?.branch_id;
+  if(method==='cash') return financeAccounts.find(a=>a.account_type==='cash' && a.location_id===loc)?.id || financeAccounts.find(a=>a.account_type==='cash')?.id || null;
+  if(method==='bank_transfer') return financeAccounts.find(a=>a.account_type==='bank' && a.location_id===loc)?.id || financeAccounts.find(a=>a.account_type==='bank')?.id || financeAccounts.find(a=>a.account_type==='card')?.id || null;
+  if(method==='card') return financeAccounts.find(a=>a.account_type==='card' && a.location_id===loc)?.id || financeAccounts.find(a=>a.account_type==='card')?.id || financeAccounts.find(a=>a.account_type==='bank' && a.location_id===loc)?.id || financeAccounts.find(a=>a.account_type==='bank')?.id || null;
   return null;
 }
 
@@ -3271,7 +3419,7 @@ async function openSaleReturn(id){
     q('saleReturnDate').value=new Date().toISOString().slice(0,10);
     q('saleReturnRefundMethod').value=Number(returningSale.balance_due||0)>0?'credit_reduction':'cash';
     q('saleReturnItemsBody').innerHTML=returningSaleItems.map(it=>`<tr><td class="ltr">${esc(it.product_code)}</td><td>${esc(it.product_name)}</td><td>${money(it.qty)}</td><td>${money(it.unit_price)}</td><td>${money(it.line_discount||0)}</td><td><input class="ri-qty" data-item-id="${it.id}" type="number" step="1" min="0" max="${Number(it.qty||0)}" value="0" oninput="updateSaleReturnTotal()"></td></tr>`).join('');
-    updateSaleReturnTotal(); q('saleReturnModal').classList.add('show');
+    updateSaleReturnTotal(); refreshSaleReturnAccountOptions(); q('saleReturnModal').classList.add('show');
   }catch(err){console.error(err);toast('خطأ في فتح المرتجع: '+err.message)} finally{showLoading(false);window.__busy=false}
 }
 function getReturnItems(){
@@ -3371,6 +3519,35 @@ function editFinanceAccount(id){
 function fillSettingsForm(){if(!q('settingsBusinessName'))return; q('settingsBusinessName').value=APP_CONFIG.businessName; q('settingsTagline').value=APP_CONFIG.tagline; q('settingsCurrency').value=APP_CONFIG.currency; q('settingsLowStock').value=APP_CONFIG.lowStockThreshold;}
 function resetLocalSettings(){localStorage.removeItem('posAppConfig'); location.reload()}
 
+/* ملء حساب الاسترداد: حسب الطريقة + فرع الفاتورة الأصلية (لا فرع المستخدم) */
+function refreshSaleReturnAccountOptions(){
+  const sel=q('saleReturnAccount'); const warn=q('saleReturnAccountWarn'); if(!sel) return;
+  const method=q('saleReturnRefundMethod')?.value;
+  const loc=returningSale?.location_id||null;
+  if(!['cash','bank_transfer','card'].includes(method)){
+    sel.innerHTML='<option value="">—</option>'; sel.value=''; sel.disabled=true;
+    if(warn){warn.style.display='none';}
+    return;
+  }
+  sel.disabled=false;
+  const compat=financeAccounts.filter(a=>{
+    if(method==='cash') return a.account_type==='cash';
+    if(method==='bank_transfer') return a.account_type==='bank'||a.account_type==='card';
+    return a.account_type==='card'||a.account_type==='bank';
+  });
+  /* حسابات فرع الفاتورة أولاً ثم بقية المتوافقة (مرئية كلها — قابلة للتغيير) */
+  const sorted=[...compat].sort((a,b)=>((a.location_id===loc)?0:1)-((b.location_id===loc)?0:1));
+  sel.innerHTML=sorted.map(a=>`<option value="${a.id}">${esc(a.name)}${a.location_id===loc?' (فرع الفاتورة)':''}</option>`).join('');
+  const def=defaultFinanceAccountFor(method, loc);
+  if(def && sorted.some(a=>a.id===def)) sel.value=def;
+  else if(sorted.length) sel.value=sorted[0].id;
+  if(warn){
+    const none=!sorted.length;
+    warn.style.display=none?'block':'none';
+    if(none) warn.textContent='⚠ لا يوجد حساب مالي متوافق مع طريقة «'+typeLabel(method)+'» — أنشئ الحساب من شاشة الخزائن والمصارف أولاً. لن يُحفظ المرتجع بحساب خاطئ.';
+  }
+}
+q('saleReturnRefundMethod')?.addEventListener('change',refreshSaleReturnAccountOptions);
 q('saleReturnForm').addEventListener('submit', async e=>{
   e.preventDefault();
   if(window.__busy) return; window.__busy=true;
@@ -3378,8 +3555,8 @@ q('saleReturnForm').addEventListener('submit', async e=>{
   try{
     showLoading(true);
     const method=q('saleReturnRefundMethod').value;
-    const account_id=['cash','bank_transfer','card'].includes(method) ? defaultFinanceAccountFor(method) : null;
-    if(['cash','bank_transfer','card'].includes(method) && !account_id){toast('اختر/أنشئ حساب مالي لطريقة الاسترداد أولاً','warn'); window.__busy=false; return;}
+    const account_id=['cash','bank_transfer','card'].includes(method) ? (q('saleReturnAccount')?.value||defaultFinanceAccountFor(method, returningSale?.location_id)) : null;
+    if(['cash','bank_transfer','card'].includes(method) && !account_id){toast('لا يوجد حساب مالي متوافق مع طريقة الاسترداد («'+typeLabel(method)+'») — أنشئه من شاشة الخزائن والمصارف أولاً','warn'); window.__busy=false; return;}
     const body={sale_id:returningSaleId,return_date:q('saleReturnDate').value,location_id:returningSale.location_id,customer_id:returningSale.customer_id,refund_method:method,account_id,notes:q('saleReturnNotes').value.trim()||null};
     const idem=getDraftKey('saleReturn');
     const ret=await rpc('post_sale_return_transaction',{p_return:body,p_items:items,p_idempotency_key:idem,p_user_identifier:appUser?.identifier||''});
@@ -3730,6 +3907,15 @@ q('saleForm').addEventListener('submit', async e=>{
   updateSaleTotal();
   const subtotal=items.reduce((a,x)=>a+x.line_total,0); const discount=moneyVal(q('saleDiscount').value); const total=subtotal-discount;
   const payRows=getSalePaymentBreakdown(); const rawPaid=payRows.reduce((a,x)=>a+Number(x.amount||0),0); const isRefundInvoice=total<0; const refundRequired=Math.abs(total);
+  if(isRefundInvoice){
+    /* 🔴 إغلاق باب «المرتجع بفاتورة سالبة»: الخادم يرفضه في البيع الجديد أصلاً
+       (NEGATIVE_OR_ZERO_SALE_QTY / DISCOUNT_EXCEEDS_SUBTOTAL) — وهنا نمنعه مبكراً
+       وبرسالة واضحة ونوجّه إلى شاشة المرتجع المناسبة */
+    toast('لا يمكن حفظ فاتورة بيع بإجمالي سالب — لتصحيح بيع سابق استعمل «مرتجع بيع» من الفاتورة الأصلية','warn');
+    window.__busy=false; document.querySelectorAll('#salePaymentScreen .btn,.pos-mini-keypad .enter').forEach(b=>b.disabled=false);
+    if(editingSaleId){ openSaleReturn(editingSaleId); }
+    return;
+  }
   if(!isRefundInvoice && rawPaid>total){toast('المدفوع أكبر من إجمالي الفاتورة. صحّح مبالغ الدفع قبل الحفظ.','warn'); openSalePaymentScreen(); window.__busy=false; document.querySelectorAll('#salePaymentScreen .btn,.pos-mini-keypad .enter').forEach(b=>b.disabled=false); return;}
   if(isRefundInvoice && Math.abs(rawPaid-refundRequired)>0.001){toast('هذه فاتورة مرتجع. يجب إدخال مبلغ الاسترداد كاملًا: '+money(refundRequired)+' '+APP_CONFIG.currency,'warn'); openSalePaymentScreen(); window.__busy=false; document.querySelectorAll('#salePaymentScreen .btn,.pos-mini-keypad .enter').forEach(b=>b.disabled=false); return;}
   if(isRefundInvoice){const missing=payRows.find(r=>!defaultAccountFor(r.payment_method,location_id)); if(missing){toast('اختر حسابًا ماليًا لطريقة الاسترداد: '+typeLabel(missing.payment_method),'warn'); openSalePaymentScreen(); window.__busy=false; document.querySelectorAll('#salePaymentScreen .btn,.pos-mini-keypad .enter').forEach(b=>b.disabled=false); return;}}
@@ -3867,7 +4053,7 @@ q('supplierForm').addEventListener('submit', async e=>{
 });
 
 function selectDefaultSupplierPaymentAccount(){const m=q('paymentMethod')?.value; if(q('paymentFinanceAccount')) q('paymentFinanceAccount').innerHTML=financeAccountOptionsFor(m,'تلقائي حسب الطريقة'); const id=defaultFinanceAccountFor(m); if(q('paymentFinanceAccount')&&id) q('paymentFinanceAccount').value=id;}
-function selectDefaultPurchasePaymentAccount(){const m=q('purchasePaymentMethod')?.value; if(q('purchaseFinanceAccount')) q('purchaseFinanceAccount').innerHTML=financeAccountOptionsFor(m,'تلقائي حسب الطريقة'); const id=defaultFinanceAccountFor(m); if(q('purchaseFinanceAccount')&&id) q('purchaseFinanceAccount').value=id;}
+function selectDefaultPurchasePaymentAccount(){const m=q('purchasePaymentMethod')?.value; if(q('purchaseFinanceAccount')) q('purchaseFinanceAccount').innerHTML=financeAccountOptionsFor(m,'تلقائي حسب الطريقة'); const id=defaultFinanceAccountFor(m, q('purchaseLocation')?.value||appUser?.branch_id); if(q('purchaseFinanceAccount')&&id) q('purchaseFinanceAccount').value=id;}
 function selectDefaultCustomerPaymentAccount(){const m=q('customerPaymentMethod')?.value; if(q('customerPaymentFinanceAccount')) q('customerPaymentFinanceAccount').innerHTML=financeAccountOptionsFor(m,'تلقائي حسب الطريقة'); const id=defaultFinanceAccountFor(m); if(q('customerPaymentFinanceAccount')&&id) q('customerPaymentFinanceAccount').value=id;}
 function expenseAccountsForMethod(method){
   const branch=q('expenseLocation')?.value||appUser?.branch_id||'';
@@ -3978,7 +4164,7 @@ q('purchaseForm').addEventListener('submit', async e=>{
     const purchasePaid=moneyVal(q('purchasePaidAmount')?.value); const purchasePayMethod=q('purchasePaymentMethod')?.value||'cash'; validateAccountingForPurchase(total,purchasePaid); const body={supplier_id:q('purchaseSupplier').value,location_id:q('purchaseLocation').value,invoice_no:q('purchaseInvoiceNo').value.trim(),purchase_date:q('purchaseDate').value,subtotal,discount,total,paid_amount:purchasePaid,status:'posted',notes:q('purchaseNotes').value.trim()};
     let purchaseId=editingPurchaseId;
     if(!editingPurchaseId){
-      const payment={amount:purchasePaid,payment_method:purchasePayMethod,account_id:(q('purchaseFinanceAccount')?.value||defaultFinanceAccountFor(purchasePayMethod))};
+      const payment={amount:purchasePaid,payment_method:purchasePayMethod,account_id:(q('purchaseFinanceAccount')?.value||defaultFinanceAccountFor(purchasePayMethod, body.location_id))};
       const idem=getDraftKey('purchase');
       const saved=await rpc('post_purchase_transaction',{p_purchase:body,p_items:items,p_payment:payment,p_idempotency_key:idem,p_user_identifier:appUser?.identifier||''});
       clearDraftKey('purchase');

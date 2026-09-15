@@ -488,3 +488,8 @@
     #saleCreditLine{padding:9px 12px;border-radius:8px;background:color-mix(in srgb,var(--warn) 10%,transparent);font-weight:700;font-size:14px}
     /* (ب) نافذة تحصيل الفاتورة */
     #invoicePaymentInfo .card{padding:8px 12px;margin:0}
+
+    /* (المرتجعات) تبويب فرعي داخل فواتير البيع */
+    .sub-tab{padding:7px 16px;font-size:13.5px}
+    .sub-tab.active{background:#0f2a5f;color:#fff}
+    #returnsTotalFoot td{border-top:2px solid var(--border);background:color-mix(in srgb,var(--bad) 7%,transparent);font-weight:700}

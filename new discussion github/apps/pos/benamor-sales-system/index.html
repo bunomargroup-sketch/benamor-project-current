@@ -19,7 +19,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<link rel="stylesheet" href="app.css?v=20260915-1322">
+<link rel="stylesheet" href="app.css?v=20260915-1455">
 </head>
 <body class="auth-locked">
   <header>
@@ -386,7 +386,11 @@
       </section>
       <section id="salesList" class="section">
         <div class="panel">
-          <div class="tools"><h2>فواتير البيع</h2><button class="btn secondary" onclick="loadAll()">تحديث</button></div>
+          <div class="tools"><h2>فواتير البيع</h2><div class="row" style="gap:6px">
+            <button class="btn sub-tab active" type="button" id="subTabInvoicesBtn" onclick="showSalesSub('invoices')">الفواتير</button>
+            <button class="btn secondary sub-tab" type="button" id="subTabReturnsBtn" onclick="showSalesSub('returns')">المرتجعات</button>
+          </div><button class="btn secondary" onclick="loadAll()">تحديث</button></div>
+          <div id="salesInvoicesPanel">
           <div class="grid sales-filter-grid" style="margin:10px 0">
             <div><label>بحث الفواتير</label><input id="saleListSearch" placeholder="رقم، زبون، هاتف، صنف، باركود..." oninput="renderSales()"></div>
             <div><label>من تاريخ</label><input id="saleFilterFrom" type="date" onchange="renderSales()"></div>
@@ -410,6 +414,24 @@
             <span class="mini ctx-hint"><i class="ti ti-mouse"></i> اضغط بزر الفأرة الأيمن على أي صف لعرض قائمة الإجراءات</span>
           </div>
           <div class="table-scroll"><table><thead><tr><th>رقم</th><th>التاريخ</th><th>الفرع</th><th>الزبون</th><th>طريقة الدفع</th><th>الإجمالي</th><th>المدفوع</th><th>الدين</th><th>إجراء</th></tr></thead><tbody id="salesBody"></tbody></table></div>
+          </div>
+
+          <div id="salesReturnsPanel" style="display:none">
+            <div class="grid sales-filter-grid" style="margin:10px 0">
+              <div><label>من تاريخ</label><input id="retFilterFrom" type="date" onchange="renderReturns()"></div>
+              <div><label>إلى تاريخ</label><input id="retFilterTo" type="date" onchange="renderReturns()"></div>
+              <div><label>الفرع</label><select id="retFilterBranch" onchange="renderReturns()"><option value="">كل الفروع</option></select></div>
+              <div><label>طريقة الاسترداد</label><select id="retFilterMethod" onchange="renderReturns()"><option value="">كل الطرق</option><option value="cash">نقدي</option><option value="bank_transfer">تحويل مصرفي</option><option value="card">بطاقة</option><option value="credit_reduction">تخفيض دين</option><option value="none">بدون استرداد نقدي</option></select></div>
+              <div><label>بحث برقم الفاتورة الأصلية</label><input id="retFilterSearch" placeholder="مثال: INV-1095" oninput="renderReturns()"></div>
+              <div class="row" style="align-items:end"><button class="btn secondary" type="button" onclick="resetReturnFilters()">مسح الفلاتر</button></div>
+            </div>
+            <div class="table-scroll"><table>
+              <thead><tr><th>التاريخ</th><th>المرتجع</th><th>الفاتورة الأصلية</th><th>الزبون</th><th>الفرع</th><th>الإجمالي</th><th>طريقة الاسترداد</th><th>الحساب</th><th>مَن سجّل</th></tr></thead>
+              <tbody id="returnsBody"></tbody>
+              <tfoot id="returnsTotalFoot"><tr><td colspan="9" class="mini">—</td></tr></tfoot>
+            </table></div>
+            <div class="row" style="justify-content:space-between;margin-top:8px"><span class="mini" id="returnsListInfo"></span><span class="mini">نقر يمين على الصف: التفاصيل · طباعة · الانتقال للفاتورة الأصلية</span></div>
+          </div>
         </div>
       </section>
 
@@ -1082,7 +1104,9 @@
         <div class="form">
           <div><label>التاريخ</label><input id="saleReturnDate" type="date" required></div>
           <div><label>طريقة الدفع للزبون</label><select id="saleReturnRefundMethod"><option value="cash">دفع نقدي للزبون</option><option value="bank_transfer">تحويل مصرفي</option><option value="card">بطاقة</option><option value="credit_reduction">تخفيض دين الزبون</option><option value="none">بدون استرداد نقدي</option></select></div>
+          <div><label>الحساب الذي يخرج منه المبلغ</label><select id="saleReturnAccount"></select></div>
           <div style="grid-column:1/-1"><label>ملاحظات</label><input id="saleReturnNotes" placeholder="اختياري"></div>
+          <div style="grid-column:1/-1" class="mini" id="saleReturnAccountWarn" style="display:none;color:var(--bad)"></div>
         </div>
         <div class="table-scroll"><table><thead><tr><th>الكود</th><th>الصنف</th><th>المباع</th><th>سعر البيع</th><th>خصم السطر</th><th>كمية المرتجع</th></tr></thead><tbody id="saleReturnItemsBody"></tbody></table></div>
         <div class="row" style="margin-top:12px"><button class="btn" type="submit">حفظ فاتورة المرتجع</button><span class="mini" id="saleReturnTotal">الإجمالي: 0</span></div>
@@ -1145,6 +1169,6 @@
 
 
 
-<script src="app.js?v=20260915-1322"></script>
+<script src="app.js?v=20260915-1455"></script>
 </body>
 </html>
