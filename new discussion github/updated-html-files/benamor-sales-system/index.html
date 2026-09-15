@@ -19,7 +19,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<link rel="stylesheet" href="app.css?v=20260915-1721">
+<link rel="stylesheet" href="app.css?v=20260915-1732">
 </head>
 <body class="auth-locked">
   <header>
@@ -594,6 +594,11 @@
 
 
       <section id="transfers" class="section">
+        <div class="tools" style="margin-bottom:10px"><div class="row" style="gap:6px">
+          <button class="btn sub-tab active" type="button" id="transfersSubTabBtn" onclick="showTransfersSub('transfers')">التحويلات</button>
+          <button class="btn secondary sub-tab" type="button" id="suggestionsSubTabBtn" onclick="showTransfersSub('suggestions')">اقتراحات التحويل</button>
+        </div></div>
+        <div id="transfersMainPanel">
         <div class="panel">
           <h2>تحويل مخزون بين الفروع والمخازن</h2>
           <form id="transferForm">
@@ -620,6 +625,54 @@
         <div class="panel">
           <div class="tools"><h2>آخر تحويلات المخزون</h2><button class="btn secondary" onclick="loadAll()">تحديث</button></div>
           <div class="table-scroll"><table><thead><tr><th>رقم</th><th>التاريخ</th><th>من</th><th>إلى</th><th>الحالة</th><th>ملاحظات</th><th>إجراء</th></tr></thead><tbody id="transfersBody"></tbody></table></div>
+        </div>
+        </div>
+
+        <div id="transferSuggestionsPanel" style="display:none">
+          <div class="mini" id="suggestionsNegativesBanner" style="display:none;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:color-mix(in srgb,var(--bad) 10%,transparent);font-weight:700"></div>
+          <div class="row" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">
+            <button class="btn" type="button" id="sgListABtn" onclick="showSuggestionList('A')">🔴 طُلب ولم يوجد</button>
+            <button class="btn secondary" type="button" id="sgListBBtn" onclick="showSuggestionList('B')">🟠 نفد وكان يُباع هنا</button>
+            <button class="btn secondary" type="button" id="sgListCBtn" onclick="showSuggestionList('C')">🟢 فرق الكميات (بفلاتر)</button>
+            <span class="mini" id="sgTiming" style="align-self:center"></span>
+          </div>
+
+          <div id="sgPanelA" class="panel">
+            <div class="table-scroll" style="max-height:56vh"><table>
+              <thead><tr><th style="width:34px">✓</th><th>التاريخ</th><th>الصنف</th><th>الفرع الطالب</th><th>كميته هناك</th><th>المتوفّر في المواقع الأخرى</th><th>المصدر المقترح</th><th>الكمية المقترحة</th><th>مرات الطلب</th><th>مَن طلبه</th><th></th></tr></thead>
+              <tbody id="sgABody"></tbody>
+              <tfoot id="sgAFoot"></tfoot>
+            </table></div>
+          </div>
+
+          <div id="sgPanelB" class="panel" style="display:none">
+            <div class="mini" style="margin-bottom:8px">أصناف كميتها ≤ الحدّ في فرع بيعٍ سبق أن بيع فيه هذا الصنف — ستمتلئ وحدها مع تراكم فواتير البيع</div>
+            <div class="table-scroll" style="max-height:56vh"><table>
+              <thead><tr><th style="width:34px">✓</th><th>الصنف</th><th>الفرع</th><th>كميته هناك</th><th>الحدّ</th><th>آخر بيع له فيه</th><th>المصدر المقترح</th><th>الكمية المقترحة</th><th></th></tr></thead>
+              <tbody id="sgBBody"></tbody>
+              <tfoot id="sgBFoot"></tfoot>
+            </table></div>
+          </div>
+
+          <div id="sgPanelC" class="panel" style="display:none">
+            <div class="mini" style="margin-bottom:8px;font-weight:700">🟢 شاشة تصفّح — لا تعرض شيئاً قبل اختيار فلتر واحد على الأقل</div>
+            <div class="row" style="gap:8px;margin-bottom:10px;flex-wrap:wrap">
+              <select id="sgFilterCategory" onchange="renderSuggestionList()"><option value="">التصنيف — الكل</option></select>
+              <select id="sgFilterSupplier" onchange="renderSuggestionList()"><option value="">المورّد — الكل</option></select>
+              <input id="sgFilterMinQty" type="number" min="1" placeholder="أدنى كمية عند المصدر" style="width:150px" oninput="renderSuggestionList()">
+              <input id="sgFilterMinValue" type="text" inputmode="decimal" placeholder="أدنى قيمة للسطر (د.ل)" style="width:150px" oninput="renderSuggestionList()">
+            </div>
+            <div class="table-scroll" style="max-height:56vh"><table>
+              <thead><tr><th style="width:34px">✓</th><th>الصنف</th><th>التصنيف</th><th>الفرع</th><th>كميته هناك</th><th>المصدر المقترح</th><th>المتاح عند المصدر</th><th>الكمية المقترحة</th><th>قيمة السطر</th><th></th></tr></thead>
+              <tbody id="sgCBody"></tbody>
+              <tfoot id="sgCFoot"></tfoot>
+            </table></div>
+          </div>
+
+          <div class="row" style="margin-top:10px;gap:8px">
+            <button class="btn" type="button" onclick="createTransferFromSuggestions()">🚚 إنشاء فاتورة تحويل من المحدَّد</button>
+            <span class="mini" id="sgSelectedInfo"></span>
+          </div>
         </div>
       </section>
 
@@ -1188,6 +1241,6 @@
 
 
 
-<script src="app.js?v=20260915-1721"></script>
+<script src="app.js?v=20260915-1732"></script>
 </body>
 </html>
