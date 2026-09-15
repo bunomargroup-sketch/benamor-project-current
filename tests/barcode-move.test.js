@@ -10,15 +10,18 @@ const APP=path.join(HERE,'new discussion github','apps','pos','benamor-sales-sys
 const html=fs.readFileSync(IDX,'utf8');
 const app=fs.readFileSync(APP,'utf8');
 
-test('حقل الباركود داخل pos-items-card فوق شريط «الأصناف» مباشرة', ()=>{
-  const itemsCard=html.indexOf('pos-items-card');
+test('حقل الباركود في شريطه الخاص [4] فوق منطقة العمل — أبرز عنصر', ()=>{
+  /* إعادة التنظيم 2026: الشريط خرج من بطاقة الأصناف وصار ابناً مباشراً للنموذج
+     فوق pos-work-area (مواصفة المخطّط [4]: عرض كامل · إطار 2px أزرق) */
+  const formStart=html.indexOf('id="saleForm"');
+  const workArea=html.indexOf('pos-work-area');
+  const strip=html.indexOf('sale-barcode-strip');
   const barcode=html.indexOf('id="saleBarcodeInput"');
-  const itemsTools=html.indexOf('>الأصناف</h2>');
-  assert.ok(itemsCard>-1&&barcode>-1&&itemsTools>-1);
-  assert.ok(itemsCard<barcode,'الحقل داخل بطاقة الأصناف');
-  assert.ok(barcode<itemsTools,'الحقل فوق عنوان الأصناف');
-  /* شريط التعبئة الكاملة والخط الأكبر */
-  assert.ok(html.includes('sale-barcode-strip'),'الشريط الجديد موجود');
+  const itemsCard=html.indexOf('pos-items-card');
+  assert.ok(formStart>-1&&workArea>-1&&strip>-1&&barcode>-1&&itemsCard>-1);
+  assert.ok(formStart<strip&&strip<barcode&&barcode<workArea,'الشريط ابن مباشر للنموذج قبل منطقة العمل');
+  assert.ok(strip<itemsCard,'الشريط فوق بطاقة الأصناف (خارجها)');
+  assert.ok(html.includes('sale-barcode-icon'),'أيقونة الباركود في الشريط');
 });
 
 test('المعرف والمعالجات كما هي — لا تغيير في السلوك', ()=>{
@@ -37,19 +40,27 @@ test('«ملاحظات» و«الطباعة» بقيتا أعلى الصفحة �
   assert.ok(printSel>-1&&printSel<itemsCard,'الطباعة أعلى الصفحة');
 });
 
-test('زر «إضافة سريعة» واختصار «/» ما زالا يستهدفان الحقل', ()=>{
-  assert.ok(html.includes("q('saleBarcodeInput').focus()"),'زر الإضافة السريعة يستهدف المعرف نفسه');
+test('شريحة «قائمة المنتجات F3» في الشريط واختصار «/» يستهدفان الحقل والمنتقي', ()=>{
+  /* زر «إضافة سريعة» حُذف بمواصفة إعادة التنظيم (كان يفعل التركيز فقط والحقل الآن أعلى الشاشة) */
+  assert.ok(!html.includes('إضافة سريعة'),'زر «إضافة سريعة» حُذف');
+  /* شريحة F3 داخل الشريط تفتح المنتقي */
+  const stripStart=html.indexOf('sale-barcode-strip');
+  const stripEnd=html.indexOf('</div>',html.indexOf('id="saleBarcodeInput"'));
+  const stripHtml=html.slice(stripStart,stripEnd);
+  assert.ok(stripHtml.includes('openSaleProductPicker()')&&stripHtml.includes('F3'),'شريحة قائمة المنتجات [F3] في الشريط');
   const slash=app.match(/key==='\/'[\s\S]{0,200}/)||app.match(/'\/'[\s\S]{0,200}saleBarcodeInput/);
   assert.ok(slash,'اختصار / موجود ويستهدف الحقل');
+  assert.ok(app.includes("function focusBarcode(){const el=q('saleBarcodeInput')"),'focusBarcode يستهدف المعرف نفسه');
 });
 
-test('ترتيب DOM سليم بعد النقل (بنية المجموعة القديمة بلا حقل الباركود)', ()=>{
-  const quickGroup=html.indexOf('الإدخال السريع');
-  const oldGroup=html.indexOf('ملاحظات الفاتورة والطباعة');
-  /* مجموعة الإدخال السريع القديمة صارت «ملاحظات الفاتورة والطباعة» أو أزيلت — الحقل لم يعد فيها */
-  if(quickGroup>-1){
-    const groupEnd=html.indexOf('</div>',quickGroup);
-    assert.ok(html.slice(quickGroup,groupEnd).indexOf('saleBarcodeInput')===-1,'الحقل لم يعد في مجموعة الإدخال السريع');
-  }
-  assert.ok(oldGroup>-1,'المجموعة العلوية معنونة من جديد (ملاحظات/طباعة)');
+test('ترتيب DOM سليم بعد إعادة التنظيم (المجموعات القديمة أزيلت)', ()=>{
+  assert.ok(html.indexOf('الإدخال السريع')===-1,'مجموعة الإدخال السريع القديمة أزيلت');
+  assert.ok(html.indexOf('ملاحظات الفاتورة والطباعة')===-1,'المجموعة العلوية القديمة أزيلت');
+  /* «ملاحظات» و«الطباعة» الآن في لوحة التفاصيل القابلة للطي */
+  const panelStart=html.indexOf('sale-details-panel');
+  assert.ok(panelStart>-1,'لوحة تفاصيل الفاتورة موجودة');
+  const panelEnd=html.indexOf('</div>',html.indexOf('id="salePrintAfterSave"'));
+  const panelHtml=html.slice(panelStart,panelEnd);
+  assert.ok(panelHtml.includes('id="saleNotes"')&&panelHtml.includes('id="salePrintAfterSave"'),'الملاحظات والطباعة داخل لوحة التفاصيل');
+  assert.ok(panelHtml.indexOf('saleBarcodeInput')===-1,'حقل الباركود ليس في أي لوحة');
 });

@@ -19,7 +19,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<link rel="stylesheet" href="app.css?v=20260915-2018">
+<link rel="stylesheet" href="app.css?v=20260915-2055">
 </head>
 <body class="auth-locked">
   <header>
@@ -282,75 +282,71 @@
 
       <section id="sales" class="section hide-margins">
         <div class="panel cashier-panel">
-          <div class="cashier-head">
-            <div>
-              <h2>فاتورة بيع جديدة</h2>
-              <div class="shortcut-hint mini"><span><b class="kbd">F3</b> قائمة المنتجات</span><span><b class="kbd">F6</b> حفظ بدون طباعة</span><span><b class="kbd">F7</b> حفظ وطباعة</span><span><b class="kbd">F8/F9/F10</b> كاش/تحويل/بطاقة</span><span><b class="kbd">Esc</b> إغلاق</span></div>
-            </div>
-            <div class="cashier-big-total"><span>الإجمالي</span><b id="saleHeaderTotal">0.00</b></div>
-          </div>
           <div id="saleEditAlert" class="edit-alert hidden">أنت الآن تعدل فاتورة بيع قديمة — تأكد من حفظ التعديل أو إلغائه.</div>
-
           <form id="saleForm" class="pos-sales-shell" novalidate>
-            <div class="pos-invoice-head">
-              <div class="sale-group">
-                <div class="sale-group-title"><i class="ti ti-receipt"></i> بيانات الفاتورة</div>
-                <div class="sale-group-grid">
-                  <div><label>رقم الفاتورة</label><input id="saleInvoiceNo" class="ltr" readonly tabindex="-1" placeholder="يتم توليده عند الحفظ"></div>
-                  <div><label>التاريخ</label><input id="saleDate" type="date" required></div>
-                </div>
+            <!-- [2] شريط الفاتورة المدمج -->
+            <div class="sale-topbar">
+              <div class="sale-topbar-title">
+                <div class="sale-title">فاتورة بيع جديدة</div>
+                <div class="sale-subtitle" id="saleInvoiceNoText">الرقم يُولَّد عند الحفظ</div>
               </div>
-              <div class="sale-group">
-                <div class="sale-group-title"><i class="ti ti-user"></i> الزبون</div>
-                <div class="sale-group-grid">
-                  <div style="grid-column:1/-1"><label>بحث سريع في الزبائن (اسم أو هاتف)</label><div class="row" style="gap:6px;flex-wrap:nowrap"><input id="saleCustomerSearch" placeholder="اكتب للتصفية…" oninput="filterSaleCustomerOptions()" style="flex:1"><button class="btn secondary" type="button" onclick="clearSaleCustomerSelection()" title="مسح الزبون (زبون نقدي)">✖ مسح الزبون</button></div></div>
-                  <div><label>زبون موجود</label><select id="saleCustomer" onchange="renderSaleCustomerInfo();updateSaleTotal()"></select></div>
-                  <div><label>أو اسم زبون جديد</label><input id="saleNewCustomerName" placeholder="مطلوب إذا يوجد دين"></div>
-                  <div><label>هاتف الزبون</label><input id="saleNewCustomerPhone" class="ltr" placeholder="اختياري"></div>
-                  <label style="display:flex;align-items:center;gap:6px;margin:0;padding:10px 0;cursor:pointer"><input id="saleWholesaleToggle" type="checkbox" style="width:auto" title="عند التفعيل تُستعمل أسعار الجملة"> 🔖 سعر الجملة</label>
-                </div>
+              <div class="sale-chips">
+                <div class="schip schip-date" title="تاريخ الفاتورة"><span class="schip-lbl">التاريخ</span><input id="saleDate" type="date" required></div>
+                <div class="schip schip-customer" title="الزبون"><span class="schip-lbl" id="saleCustomerChipName">زبون نقدي</span><button type="button" class="schip-act" onclick="toggleSaleCustomerPanel()">تغيير</button></div>
+                <button type="button" class="schip schip-price" id="salePriceChip" onclick="toggleSaleWholesale()" title="التبديل بين أسعار التجزئة والجملة"><span class="schip-lbl" id="salePriceChipLbl">سعر التجزئة</span></button>
+                <button type="button" class="schip schip-details" id="saleDetailsChip" onclick="toggleSaleDetailsPanel()" title="ملاحظات · طباعة · جملة · هاتف"><span class="schip-lbl">تفاصيل الفاتورة</span><span class="schip-sub">ملاحظات · طباعة · جملة · هاتف</span></button>
+                <div class="schip schip-balance hidden" id="saleCustomerChip" title="رصيد الزبون"><b class="schip-lbl" id="saleCustomerBalance">0.00</b><span class="schip-sub" id="saleCustomerInfo">زبون نقدي / بدون زبون</span></div>
               </div>
-              <div class="sale-group">
-                <div class="sale-group-title"><i class="ti ti-notes"></i> ملاحظات الفاتورة والطباعة</div>
-                <div class="sale-group-grid">
-                  <div><label>ملاحظات</label><input id="saleNotes" placeholder="اختياري"></div>
-                  <div><label>الطباعة</label><select id="salePrintAfterSave"><option value="yes">اطبع بعد الحفظ</option><option value="no">حفظ بدون طباعة</option></select></div>
-                </div>
-              </div>
-              <div class="hidden"><label>فرع البيع</label><select id="saleLocation" required onchange="refreshSaleAvailability();renderSaleStockInfo();renderStatusBar()"></select></div>
-              <div class="hidden"><label>طريقة الدفع</label><select id="salePaymentMethod" onchange="updateSaleTotal()"><option value="cash">نقدي</option><option value="bank_transfer">تحويل مصرفي</option><option value="card">بطاقة</option><option value="mixed">مختلط</option><option value="credit">آجل / دين</option></select></div>
-              <div class="pos-currency hidden">العملة: <span style="margin-inline-start:6px">د.ل</span></div>
+              <div class="sale-topbar-total"><span>الإجمالي</span><b id="saleHeaderTotal">0.00</b></div>
             </div>
-
+            <!-- رقم الفاتورة يبقى في الـDOM مخفياً وتُعرض قيمته نصّاً في الشريط العلوي -->
+            <div class="hidden"><label>رقم الفاتورة</label><input id="saleInvoiceNo" class="ltr" readonly tabindex="-1" placeholder="يتم توليده عند الحفظ"></div>
+            <!-- لوحة الزبون — تنفتح من شريحة «تغيير» -->
+            <div class="sale-customer-panel hidden" id="saleCustomerPanel">
+              <div><label>بحث سريع في الزبائن (اسم أو هاتف)</label><div class="row" style="gap:6px;flex-wrap:nowrap"><input id="saleCustomerSearch" placeholder="اكتب للتصفية…" oninput="filterSaleCustomerOptions()" style="flex:1"><button class="btn secondary" type="button" onclick="clearSaleCustomerSelection()" title="مسح الزبون (زبون نقدي)">✖ مسح الزبون</button></div></div>
+              <div><label>زبون موجود</label><select id="saleCustomer" onchange="renderSaleCustomerInfo();updateSaleTotal()"></select></div>
+              <div><label>أو اسم زبون جديد</label><input id="saleNewCustomerName" placeholder="مطلوب إذا يوجد دين"></div>
+              <div><label>هاتف الزبون</label><input id="saleNewCustomerPhone" class="ltr" placeholder="اختياري"></div>
+              <label class="hidden"><input id="saleWholesaleToggle" type="checkbox" style="width:auto" title="عند التفعيل تُستعمل أسعار الجملة"> 🔖 سعر الجملة</label>
+            </div>
+            <!-- لوحة تفاصيل الفاتورة — تنفتح من الشريحة المتقطّعة وتُحفظ حالتها لكل مستخدم -->
+            <div class="sale-details-panel hidden" id="saleDetailsPanel">
+              <div><label>ملاحظات</label><input id="saleNotes" placeholder="اختياري"></div>
+              <div><label>الطباعة</label><select id="salePrintAfterSave"><option value="yes">اطبع بعد الحفظ</option><option value="no">حفظ بدون طباعة</option></select></div>
+            </div>
+            <div class="hidden"><label>فرع البيع</label><select id="saleLocation" required onchange="refreshSaleAvailability();renderSaleStockInfo();renderStatusBar()"></select></div>
+            <div class="hidden"><label>طريقة الدفع</label><select id="salePaymentMethod" onchange="updateSaleTotal()"><option value="cash">نقدي</option><option value="bank_transfer">تحويل مصرفي</option><option value="card">بطاقة</option><option value="mixed">مختلط</option><option value="credit">آجل / دين</option></select></div>
+            <div class="pos-currency hidden">العملة: <span style="margin-inline-start:6px">د.ل</span></div>
+            <!-- [3] سطر الاختصارات -->
+            <div class="sale-shortcuts">
+              <div class="shortcut-hint"><span><b class="kbd">F3</b> قائمة المنتجات</span><span><b class="kbd">F6</b> حفظ</span><span><b class="kbd">F7</b> حفظ وطباعة</span><span><b class="kbd">F8/F9/F10</b> كاش/تحويل/بطاقة</span><span><b class="kbd">Esc</b> إغلاق</span></div>
+              <span id="saleFooterBranch" class="mini"></span>
+            </div>
+            <!-- [4] شريط الباركود — أبرز عنصر في الشاشة -->
+            <div class="sale-barcode-strip">
+              <label for="saleBarcodeInput" class="sale-barcode-icon"><i class="ti ti-barcode"></i></label>
+              <input id="saleBarcodeInput" class="ltr barcode-input" placeholder="امسح الباركود ثم Enter" onkeydown="handleBarcodeKey(event)" oninput="handleBarcodeInput()">
+              <button type="button" class="schip schip-picker" onclick="openSaleProductPicker()">قائمة المنتجات <b class="kbd">F3</b></button>
+            </div>
+            <!-- [5] سطر المعلومات السياقي — يظهر عند اختيار صنف فقط -->
+            <div class="sale-context-strip hidden" id="saleStockInfoStrip"><div id="saleStockInfo" class="mini"></div></div>
+            <!-- [6] الشريط الجانبي + [7] بطاقة الأصناف -->
             <div class="pos-work-area">
               <aside class="pos-action-rail">
                 <div class="rail-title">الأصناف</div>
                 <button class="rail-btn" type="button" onclick="openQuickProductModal()"><i class="ti ti-plus"></i><span>إضافة صنف جديد</span></button>
-                <button class="rail-btn" type="button" onclick="editSelectedSaleLinePrice()"><i class="ti ti-edit"></i><span>تعديل سعر الصنف</span></button>
-                <button class="rail-btn" type="button" onclick="toggleSupervisorMargins()"><i class="ti ti-chart-pie"></i><span>الهامش</span></button>
-                <button class="rail-btn" type="button" disabled title="سيتم تفعيلها لاحقًا" style="opacity:.55;cursor:not-allowed"><i class="ti ti-barcode"></i><span>طباعة باركود الصنف لاحقًا</span></button>
-                <div class="rail-title">الفاتورة</div>
-                <button class="rail-btn" type="button" onclick="q('saleBarcodeInput').focus()"><i class="ti ti-bolt"></i><span>إضافة سريعة</span></button>
                 <button class="rail-btn" type="button" onclick="openSaleProductPicker()"><i class="ti ti-search"></i><span>قائمة المنتجات F3</span></button>
+                <div class="rail-title">الفاتورة</div>
                 <button class="rail-btn" type="button" onclick="openSalesListFromSale()"><i class="ti ti-receipt"></i><span>فواتير البيع</span></button>
                 <button class="rail-btn" type="button" onclick="openPriceCheckerCarts()"><i class="ti ti-basket"></i><span>سلات الباحث</span></button>
                 <div class="rail-title">أخرى</div>
                 <button class="rail-btn" type="button" onclick="applyDiscountCoupon()"><i class="ti ti-ticket"></i><span>كوبون خصم</span></button>
                 <button class="rail-btn" type="button" onclick="toggleCalculator()"><i class="ti ti-calculator"></i><span>الآلة الحاسبة</span></button>
               </aside>
-
               <div class="pos-items-card">
-                <div class="cashier-info-grid">
-                  <div class="info-card"><h3>رصيد الزبون</h3><div class="num" id="saleCustomerBalance">0.00</div><div class="mini" id="saleCustomerInfo">زبون نقدي / بدون زبون</div></div>
-                  <div class="info-card"><h3>مخزون المنتج المحدد</h3><div id="saleStockInfo" class="mini">اختر منتجًا لعرض المخزون في الفروع</div></div>
-                </div>
-                <div class="sale-barcode-strip">
-                  <label for="saleBarcodeInput"><i class="ti ti-barcode"></i> امسح الباركود أو اكتب الكود ثم Enter</label>
-                  <input id="saleBarcodeInput" class="ltr barcode-input" placeholder="امسح الباركود ثم Enter" onkeydown="handleBarcodeKey(event)" oninput="handleBarcodeInput()">
-                </div>
-                <div class="tools" style="margin-top:12px">
-                  <h2 style="font-size:18px;margin:0">الأصناف</h2>
-                  <div class="row"><button class="btn secondary" type="button" onclick="addSaleRowAndFocus()">+ صنف يدوي</button><button class="btn secondary" type="button" onclick="openSaleProductPicker()">قائمة المنتجات F3</button></div>
+                <div class="pos-items-head">
+                  <h2>الأصناف (<span id="saleItemsCount">0</span>)</h2>
+                  <div class="row"><button class="btn secondary" type="button" onclick="addSaleRowAndFocus()">+ صنف يدوي</button></div>
                 </div>
                 <div class="table-scroll sale-lines-scroll">
                   <table>
@@ -361,10 +357,16 @@
                 <div class="add-row-strip" onclick="addSaleRowAndFocus()">➕ اضغط هنا لإضافة صنف</div>
               </div>
             </div>
-
+            <!-- [8] الشريط السفلي — صف واحد -->
             <div class="sale-finish-bar">
-              <div class="finish-total"><span>إجمالي الفاتورة</span><b id="saleFinishTotal">0.00</b><span class="mini" id="saleFinishBalance">المتبقي: 0.00</span></div>
-              <div class="finish-actions"><button class="btn" id="salePayBtn" type="button" onclick="openSalePaymentScreen()"><i class="ti ti-cash"></i> الدفع</button><button class="btn secondary" type="button" onclick="parkCurrentSale()">تعليق</button><button class="btn secondary" type="button" onclick="resumeParkedSale()">المعلقة</button><button class="btn secondary" type="button" onclick="resetSaleFormWithConfirm()">فاتورة جديدة</button><span id="saleFooterBranch" class="mini"></span></div>
+              <div class="finish-total"><span>الإجمالي</span><b id="saleFinishTotal">0.00</b><span class="mini" id="saleFinishBalance">المتبقي: 0.00</span><span class="mini">· <span id="saleItemsCountMini">0</span> أصناف</span></div>
+              <div class="finish-spacer"></div>
+              <div class="finish-actions">
+                <button class="btn secondary" type="button" onclick="parkCurrentSale()">تعليق</button>
+                <button class="btn secondary" type="button" onclick="resumeParkedSale()">المعلقة</button>
+                <button class="btn secondary" type="button" onclick="resetSaleFormWithConfirm()">فاتورة جديدة</button>
+                <button class="btn" id="salePayBtn" type="button" onclick="openSalePaymentScreen()"><i class="ti ti-cash"></i> الدفع <b class="kbd">F6</b></button>
+              </div>
             </div>
             <div class="pos-bottom-bar" id="salePaymentScreen">
               <div class="payment-title"><h2>شاشة الدفع</h2><div class="big" id="salePaymentScreenTotal">0.00</div><button class="btn secondary" type="button" onclick="closeSalePaymentScreen()">رجوع للفاتورة</button></div>
@@ -1241,6 +1243,6 @@
 
 
 
-<script src="app.js?v=20260915-2018"></script>
+<script src="app.js?v=20260915-2055"></script>
 </body>
 </html>

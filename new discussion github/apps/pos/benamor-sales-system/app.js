@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,transferMinQtyDefault:1,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260915-2018';
+const APP_BUILD='b20260915-2055';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -2949,11 +2949,14 @@ function renderSaleCustomerInfo(){
   const bal=Number(c?.balance||0);
   if(q('saleCustomerBalance')) q('saleCustomerBalance').textContent=money(bal);
   if(q('saleCustomerInfo')) q('saleCustomerInfo').textContent=c?`${c.name}${c.phone?' - '+c.phone:''}`:'زبون نقدي / بدون زبون';
+  const chip=q('saleCustomerChip'); if(chip) chip.classList.toggle('hidden',!c); /* شريحة الرصيد: تظهر فقط عند اختيار زبون — لا 0.00 لزبون نقدي */
+  const chipName=q('saleCustomerChipName'); if(chipName) chipName.textContent=c?c.name:'زبون نقدي';
 }
 function renderSaleStockInfo(productCode){
   const code=productCode || q('saleItemsBody')?.lastElementChild?.querySelector('.si-code')?.value || '';
   const p=products.find(x=>String(x.code||'').toLowerCase()===String(code||'').toLowerCase());
   if(!q('saleStockInfo')) return;
+  const sstrip=q('saleStockInfoStrip'); if(sstrip) sstrip.classList.toggle('hidden',!p); /* السطر السياقي: يظهر فقط عند اختيار صنف */
   if(!p){q('saleStockInfo').innerHTML='اختر منتجًا لعرض المخزون في الفروع';return;}
   q('saleStockInfo').innerHTML=`<div><b>${esc(p.code)} - ${esc(p.name)}</b></div><div class="stock-chips">${locations.map(l=>`<span class="stock-chip">${esc(l.name)}: ${money(getStockQty(l.id,p.code))}</span>`).join('')}</div>`;
   maybeRecordStockRequest(p); /* بعد الرسم — صامتة وغير محجوبة */
@@ -3006,6 +3009,7 @@ function updateSaleTotal(){
   q('salePaidAmount').value=money(isRefund?-rawPaid:rawPaid);
   q('saleTotal').textContent=money(total); if(q('saleHeaderTotal')) q('saleHeaderTotal').textContent=money(total); if(q('saleFinishTotal')) q('saleFinishTotal').textContent=money(total); if(q('salePaymentScreenTotal')) q('salePaymentScreenTotal').textContent=isRefund?'استرداد '+money(required):money(total); q('saleBalance').textContent=over>0?('+'+money(over)):money(bal); if(q('saleFinishBalance')) q('saleFinishBalance').textContent=isRefund?('المطلوب رده للزبون: '+money(required)+' '+APP_CONFIG.currency):((over>0?'زيادة: ':'المتبقي: ')+money(over>0?over:bal)+' '+APP_CONFIG.currency); renderSaleCustomerInfo(); if(q('salePaymentDetected')) {q('salePaymentDetected').textContent=isRefund?(over>0?'تنبيه: مبلغ الاسترداد أكبر من المطلوب بمبلغ '+money(over)+' '+APP_CONFIG.currency:'استرداد للزبون: '+money(required)+' '+APP_CONFIG.currency+' — '+(paymentBreakdownText(getSalePaymentBreakdown())||'اختر طريقة الاسترداد')):(over>0?'تنبيه: المدفوع أكبر من إجمالي الفاتورة بمبلغ '+money(over)+' '+APP_CONFIG.currency:'طريقة الدفع: '+typeLabel(detectSalePaymentMethod(bal))+' — '+(paymentBreakdownText(getSalePaymentBreakdown())||'لم يتم إدخال دفع')); q('salePaymentDetected').style.color=(over>0||isRefund)?'var(--bad)':'';}
   if(q('saleCreditLine')){ const cl=q('saleCreditLine'); if(!isRefund && bal>0){ const cc=customers.find(x=>x.id===q('saleCustomer')?.value); cl.style.display='block'; cl.innerHTML=cc?('⚠️ المتبقي <b>'+money(bal)+' '+APP_CONFIG.currency+'</b> سيُسجَّل دَيناً على: <b>'+esc(cc.name)+'</b>'):('⚠️ المتبقي <b>'+money(bal)+' '+APP_CONFIG.currency+'</b> — <b style="color:var(--bad)">الفاتورة الآجلة تحتاج زبوناً: اختره من القائمة أو أضفه بالاسم والهاتف</b>'); cl.style.color=cc?'var(--warn)':'var(--bad)'; } else cl.style.display='none'; }
+  const nSaleItems=q('saleItemsBody')?.querySelectorAll('tr').length||0; if(q('saleItemsCount'))q('saleItemsCount').textContent=nSaleItems; if(q('saleItemsCountMini'))q('saleItemsCountMini').textContent=nSaleItems;
 }
 function normalizePhoneLY(p){
   let d=String(p||'').replace(/[^0-9]/g,'');
@@ -3054,7 +3058,7 @@ async function ensureSaleCustomer(balanceDue){
 function resetSaleForm(){
   suppressSaleDraftSave=true; saleSupervisorApproved=false; sourcePriceCheckerCartId=null;
   editingSaleId=null; originalSale=null; originalSaleItems=[];
-  q('saleForm').reset(); if(q('saleLocation') && appUser?.branch_id) q('saleLocation').value=appUser.branch_id; if(q('saleCashAmount')){q('saleCashAmount').value=0;q('saleBankAmount').value=0;q('saleCardAmount').value=0;} q('saleItemsBody').innerHTML=''; setToday(); ensureSaleInvoiceNo(true);
+  q('saleForm').reset(); if(q('saleLocation') && appUser?.branch_id) q('saleLocation').value=appUser.branch_id; if(q('saleCashAmount')){q('saleCashAmount').value=0;q('saleBankAmount').value=0;q('saleCardAmount').value=0;} q('saleItemsBody').innerHTML=''; setToday(); ensureSaleInvoiceNo(true); syncSaleInvoiceNoText(); syncSaleWholesaleChip();
   q('saleSubmitBtn').textContent='حفظ البيع'; q('saleCancelEditBtn').classList.add('hidden'); q('saleEditAlert')?.classList.add('hidden'); setActivePayInput(q('saleCashAmount')); renderSaleStockInfo(''); renderSaleCustomerInfo(); updateSaleTotal(); suppressSaleDraftSave=false; setTimeout(()=>q('saleBarcodeInput')?.focus(),50);
 }
 async function openSaleForEdit(id){
@@ -3073,7 +3077,7 @@ async function openSaleForEdit(id){
     if(!sl){toast('لم يتم العثور على فاتورة البيع'); return;}
     editingSaleId=id; originalSale={...sl}; originalSaleItems=rows.map(x=>({...x}));
     document.querySelector('[data-tab="sales"]').click();
-    q('saleLocation').value=sl.location_id||''; q('saleDate').value=sl.sale_date||''; q('salePaymentMethod').value=sl.payment_method||'cash'; q('saleInvoiceNo').value=sl.invoice_no||'';
+    q('saleLocation').value=sl.location_id||''; q('saleDate').value=sl.sale_date||''; q('salePaymentMethod').value=sl.payment_method||'cash'; q('saleInvoiceNo').value=sl.invoice_no||''; syncSaleInvoiceNoText();
     if(q('saleCustomerSearch')) q('saleCustomerSearch').value=''; rebuildSaleCustomerOptions(); q('saleCustomer').value=sl.customer_id||''; q('saleNewCustomerName').value=''; q('saleNewCustomerPhone').value=''; q('saleNotes').value=sl.notes||''; q('saleDiscount').value=Number(sl.discount||0); q('salePaidAmount').value=Number(sl.paid_amount||0);
     if(q('saleCashAmount')){q('saleCashAmount').value=0;q('saleBankAmount').value=0;q('saleCardAmount').value=0; salePayments.filter(p=>p.sale_id===id).forEach(p=>{if(p.payment_method==='cash')q('saleCashAmount').value=Number(p.amount||0); if(p.payment_method==='bank_transfer')q('saleBankAmount').value=Number(p.amount||0); if(p.payment_method==='card')q('saleCardAmount').value=Number(p.amount||0);});}
     q('saleItemsBody').innerHTML=''; rows.forEach(it=>addSaleRow({product_code:it.product_code,product_name:it.product_name,qty:it.qty,unit_price:it.unit_price,line_discount:it.line_discount,discount_text:it.discount_text}));
@@ -3565,7 +3569,7 @@ document.querySelectorAll('nav button').forEach(btn=>btn.addEventListener('click
   q(btn.dataset.tab).classList.add('active');
   if(btn.dataset.tab==='sales') document.body.classList.add('nav-collapsed');
   else document.body.classList.toggle('nav-collapsed', (localStorage.getItem('posNavCollapsed')==='1'));
-  if(btn.dataset.tab==='sales'){ if(!editingSaleId && !saleHasContent()){q('saleItemsBody').innerHTML=''; ensureSaleInvoiceNo(false);} setTimeout(()=>{ autoResumeParkedSaleIfFlagged(); q('saleBarcodeInput')?.focus(); },50); }
+  if(btn.dataset.tab==='sales'){ applySaleLayoutPrefs(); if(!editingSaleId && !saleHasContent()){q('saleItemsBody').innerHTML=''; ensureSaleInvoiceNo(false);} setTimeout(()=>{ autoResumeParkedSaleIfFlagged(); q('saleBarcodeInput')?.focus(); },50); }
   if(btn.dataset.tab==='reports' && btn.dataset.reportDefault){setTimeout(()=>showReport(btn.dataset.reportDefault),50);}
   if(btn.dataset.tab==='dailyCashClosing'){setTimeout(()=>renderDailyCashReport(),50);}
   if(btn.dataset.tab==='stockCount'){setTimeout(()=>renderStockCount(),50);}
@@ -3753,6 +3757,14 @@ function closeSalePaymentScreen(){
 }
 
 function addSaleRowAndFocus(){addSaleRow(); setTimeout(()=>q('saleItemsBody')?.lastElementChild?.querySelector('.si-code')?.focus(),30)}
+/* ═══ إعادة تنظيم شاشة البيع: دوال عرض فقط — بلا أي منطق حفظ/حساب ═══ */
+function syncSaleInvoiceNoText(){const el=q('saleInvoiceNo'),t=q('saleInvoiceNoText'); if(!t)return; const v=(el&&el.value||'').trim(); t.textContent=(!v||v==='سيولد تلقائيًا')?'الرقم يُولَّد عند الحفظ':('رقم الفاتورة: '+v);}
+function syncSaleWholesaleChip(){const t=q('saleWholesaleToggle'),c=q('salePriceChip'),l=q('salePriceChipLbl'); const on=!!(t&&t.checked); if(c)c.classList.toggle('active',on); if(l)l.textContent=on?'سعر الجملة':'سعر التجزئة';}
+function toggleSaleWholesale(){const t=q('saleWholesaleToggle'); if(!t)return; t.checked=!t.checked; syncSaleWholesaleChip();}
+function toggleSaleCustomerPanel(){const p=q('saleCustomerPanel'); if(!p)return; const willOpen=p.classList.contains('hidden'); p.classList.toggle('hidden',!willOpen); if(willOpen)setTimeout(()=>q('saleCustomerSearch')?.focus(),40);}
+function saleDetailsPrefKey(){return 'posSaleDetailsOpen_'+(appUser?.identifier||'user')}
+function toggleSaleDetailsPanel(){const p=q('saleDetailsPanel'); if(!p)return; const open=!p.classList.contains('hidden'); p.classList.toggle('hidden',open); const chip=q('saleDetailsChip'); if(chip)chip.classList.toggle('open',!open); try{localStorage.setItem(saleDetailsPrefKey(),open?'0':'1')}catch(e){}}
+function applySaleLayoutPrefs(){try{const open=localStorage.getItem(saleDetailsPrefKey())==='1'; const p=q('saleDetailsPanel'); if(p)p.classList.toggle('hidden',!open); const chip=q('saleDetailsChip'); if(chip)chip.classList.toggle('open',open);}catch(e){}}
 function currentSaleLine(){return lastFocusedSaleRow || q('saleItemsBody')?.lastElementChild || null}
 async function editSelectedSaleLinePrice(){
   const tr=currentSaleLine(); if(!tr){toast('لا يوجد صنف لتعديل السعر');return;}
@@ -4353,7 +4365,7 @@ q('saleForm').addEventListener('submit', async e=>{
         await saveSaleOfflineQueued(saleRpcPromise,payload,body,items,paymentsForRpc); /* انقطع الاتصال: طابور محلي بدل إيقاف البيع */
         return;
       }
-      saleId=saved.id; body.invoice_no=saved.invoice_no||body.invoice_no; q('saleInvoiceNo').value=body.invoice_no||'';
+      saleId=saved.id; body.invoice_no=saved.invoice_no||body.invoice_no; q('saleInvoiceNo').value=body.invoice_no||''; syncSaleInvoiceNoText();
       if(sourcePriceCheckerCartId){await rpc('mark_pricechecker_cart_converted',{p_cart_id:sourcePriceCheckerCartId}).catch(console.warn); sourcePriceCheckerCartId=null;}
       clearDraftKey('sale'); clearActiveSaleDraft();
       logAction('sale','pos_sales',saleId,`${body.invoice_no||saleId.slice(0,8)} - ${money(body.total)} ${APP_CONFIG.currency}`);
@@ -4368,7 +4380,7 @@ q('saleForm').addEventListener('submit', async e=>{
       await api('pos_sale_payments',{method:'DELETE',qs:`?sale_id=eq.${editingSaleId}`}).catch(()=>{});
       await api('pos_finance_movements',{method:'DELETE',qs:`?reference_table=eq.pos_sales&reference_id=eq.${editingSaleId}`}).catch(()=>{});
     }else{
-      const sale=await api('pos_sales',{method:'POST',body}); saleId=sale[0].id; body.invoice_no=sale[0].invoice_no||body.invoice_no; q('saleInvoiceNo').value=body.invoice_no||'';
+      const sale=await api('pos_sales',{method:'POST',body}); saleId=sale[0].id; body.invoice_no=sale[0].invoice_no||body.invoice_no; q('saleInvoiceNo').value=body.invoice_no||''; syncSaleInvoiceNoText();
     }
     await api('pos_sale_items',{method:'POST',body:items.map(it=>({...it,sale_id:saleId}))});
     const paymentsToSave=payRows.map(r=>({...r,sale_id:saleId,payment_date:body.sale_date}));
@@ -5492,6 +5504,11 @@ const CTX_BUILDERS={
     return [{head:'حركة صنف'},
       {label:'فتح المستند المرتبط',icon:'ti-file-invoice',action:()=>openMovementDocument(table,id)},
       {label:'نسخ رقم الفاتورة',icon:'ti-copy',action:()=>{navigator.clipboard?.writeText(tr.children[2]?.innerText.trim()||'');toast('تم نسخ رقم الفاتورة','success')}}];
+  },
+  saleItemsBody(tr){const code=(tr.querySelector('.si-code')?.value||'').split('|')[0].trim(); /* تعديل السعر والهامش — انتقلا هنا من الشريط الجانبي، الدالتان كما هما */
+    return [{head:code||'سطر صنف'},
+      {label:'تعديل سعر الصنف',icon:'ti-edit',action:()=>{lastFocusedSaleRow=tr; editSelectedSaleLinePrice();}},
+      {label:'الهامش (إظهار/إخفاء)',icon:'ti-chart-pie',action:()=>toggleSupervisorMargins()}];
   },
   stockBody(tr){const code=tr.children[1]?.innerText.trim(); if(!code) return [];
     return [{head:code},{label:'حركات الصنف',icon:'ti-history',action:()=>openProductMovements(code)}];
