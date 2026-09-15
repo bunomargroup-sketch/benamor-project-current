@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,transferMinQtyDefault:1,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260915-1732';
+const APP_BUILD='b20260915-1800';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -2435,7 +2435,7 @@ function renderSuggestionList(){
     body.innerHTML=rows.map(x=>{
       const elsewhere=(x.rq.available_elsewhere||[]).map(e=>esc(e.name)+': '+money(e.qty)).join(' · ')||'—';
       return `<tr>${cbCell(x)}<td>${esc(String(x.rq.last_requested_at||'').slice(0,10))}</td><td class="ltr"><b>${esc(x.code)}</b><div class="mini">${esc(x.name)}</div></td><td>${esc(locName(x.dest))}</td><td>${money(x.rq.qty_here)}</td><td class="mini">${elsewhere}</td><td><b>${esc(locName(x.from))}</b></td><td><b>${money(x.qty)}</b></td><td>${Number(x.rq.hit_count||1)}×</td><td>${esc(x.rq.user_identifier||'—')}</td><td>${dismissBtn(x)}</td></tr>`;
-    }).join('')||'<tr><td colspan="11">لا طلبات مفتوحة قابلة للاقتراح حاليًا.</td></tr>';
+    }).join('')||'<tr><td colspan="11"><div style="padding:18px 12px;text-align:center"><div style="font-size:34px">📭</div><div style="font-weight:800;font-size:15px;margin:6px 0">لا طلبات مفتوحة حاليًا</div><div class="mini" style="max-width:520px;margin:0 auto;line-height:1.9">تُملأ هذه القائمة <b>تلقائيًا دون أي إجراء منك</b>: عندما يختار الكاشير منتجًا كميته في فرعه ≤ الحدّ ومتوفّرًا في موقع آخر، يُسجَّل الطلب صامتًا (بدءًا من نشر هذه النسخة — أعطها أيامًا لتتراكم).<br>لو كانت القائمة فارغة بعد أسبوع من البيع اليومي فهذا يعني أن الفروع مكتفية — راجع الحدود من شاشة أقسام المواقع.</div></div></td></tr>';
     if(q('sgAFoot')) q('sgAFoot').innerHTML=rows.length?`<tr><td colspan="11" class="mini"><b>${rows.length} اقتراحًا</b> — الأحدث أولًا ثم الأكثر طلبًا</td></tr>`:'';
   }
   else if(sgActiveList==='B'){
@@ -2450,7 +2450,7 @@ function renderSuggestionList(){
       }
     }
     rows.sort((a,b)=>String(b.lastSold).localeCompare(String(a.lastSold)));
-    body.innerHTML=rows.map(x=>`<tr>${cbCell(x)}<td class="ltr"><b>${esc(x.code)}</b><div class="mini">${esc(x.name)}</div></td><td>${esc(locName(x.dest))}</td><td>${money(x.destQty)}</td><td>${money(x.destThr)}</td><td>${esc(x.lastSold)}</td><td><b>${esc(locName(x.from))}</b></td><td><b>${money(x.qty)}</b></td><td>${dismissBtn(x)}</td></tr>`).join('')||'<tr><td colspan="9">لا أصناف نفدت وكانت تُباع هنا — ستمتلئ وحدها مع تراكم المبيعات.</td></tr>';
+    body.innerHTML=rows.map(x=>`<tr>${cbCell(x)}<td class="ltr"><b>${esc(x.code)}</b><div class="mini">${esc(x.name)}</div></td><td>${esc(locName(x.dest))}</td><td>${money(x.destQty)}</td><td>${money(x.destThr)}</td><td>${esc(x.lastSold)}</td><td><b>${esc(locName(x.from))}</b></td><td><b>${money(x.qty)}</b></td><td>${dismissBtn(x)}</td></tr>`).join('')||`<tr><td colspan="9"><div style="padding:18px 12px;text-align:center"><div style="font-size:34px">🌱</div><div style="font-weight:800;font-size:15px;margin:6px 0">لا أصناف "نفدت وكانت تُباع هنا" بعد</div><div class="mini" style="max-width:560px;margin:0 auto;line-height:1.9">هذه القائمة تعرض الأصناف التي <b>سبق بيعها فعليًا في الفرع</b> ثم نفدت — وكلما نفد صنف مألوف لدى زبائن الفرع سيظهر هنا تلقائيًا.<br><b>متى تمتلئ؟</b> مع تراكم فواتير البيع: كل فاتورة بيع تُغني سجل "هذا الصنف يُباع في هذا الفرع"، وعند نفاد صنف له سجل كذلك يظهر هنا فورًا.<br>فقراءتها اليوم محدود بتراكم المبيعات المسجلة في النظام حديثًا — وهذا طبيعي ومقصود، لا تعويض عنه بشيء آخر.</div></div></td></tr>`;
     if(q('sgBFoot')) q('sgBFoot').innerHTML=rows.length?`<tr><td colspan="9" class="mini"><b>${rows.length} اقتراحًا</b></td></tr>`:'';
   }
   else if(sgActiveList==='C'){
@@ -2529,13 +2529,32 @@ async function dismissSuggestion(code,toLoc){
     toast('تم تجاهل الاقتراح 30 يومًا','success');
   }catch(err){ console.error(err); toast('خطأ في التجاهل: '+friendlyError(err),'error'); }
 }
-/* عند حفظ تحويل: علّم طلبات «طُلب ولم يوجد» المطابقة resolved=true (غير محجوب) */
-function markStockRequestsResolved(toLocationId,codes){
+/* عند حفظ تحويل: يُغلق الطلب فقط إذا غطّى التحويل الحاجة (المخزون بعد التحويل > الحدّ).
+   تحويل وحدة واحدة لطلب حاجته 5 ⇒ يبقى مفتوحًا بكمية محدَّثة (qty_here بعد التحويل).
+   غير محجوب أبدًا — فشله لا يعطّل حفظ التحويل. */
+function markStockRequestsResolved(toLocationId,transferItems){
   try{
-    if(!codes||!codes.length) return;
-    api('pos_stock_requests',{method:'PATCH',qs:`?resolved=eq.false&location_id=eq.${toLocationId}&product_code=in.(${codes.map(c=>encodeURIComponent(c)).join(',')})`,body:{resolved:true,resolved_at:new Date().toISOString(),resolved_by:appUser?.identifier||''}})
-      .then(()=>{ sgOpenRequests=sgOpenRequests.filter(r=>!(r.location_id===toLocationId&&codes.includes(r.product_code))); })
-      .catch(err=>console.warn('تعذّر تعليم الطلبات محلولة — لن يعطّل التحويل',err));
+    if(!transferItems||!transferItems.length) return;
+    const engine=buildSuggestionEngine(); /* لقطة المخزون قبل التحويل (applyTransferLocally تُنفَّذ بعد هذه) */
+    const covered=[], partial=[];
+    for(const it of transferItems){
+      const code=it.product_code;
+      const postQty=engine.qty(code,toLocationId)+Number(it.qty||0);
+      const thr=engine.threshold(code,toLocationId);
+      if(postQty>thr) covered.push(code);
+      else partial.push({code,postQty});
+    }
+    if(covered.length){
+      api('pos_stock_requests',{method:'PATCH',qs:`?resolved=eq.false&location_id=eq.${toLocationId}&product_code=in.(${covered.map(c=>encodeURIComponent(c)).join(',')})`,body:{resolved:true,resolved_at:new Date().toISOString(),resolved_by:appUser?.identifier||''}})
+        .then(()=>{ sgOpenRequests=sgOpenRequests.filter(r=>!(r.location_id===toLocationId&&covered.includes(r.product_code))); })
+        .catch(err=>console.warn('تعذّر إغلاق الطلبات المغطاة — لن يعطّل التحويل',err));
+    }
+    /* المفتوحة جزئيًا: حدّث qty_here ليعرض الوضع بعد التحويل — الطلب يبقى مفتوحًا */
+    partial.forEach(({code,postQty})=>{
+      api('pos_stock_requests',{method:'PATCH',qs:`?resolved=eq.false&location_id=eq.${toLocationId}&product_code=eq.${encodeURIComponent(code)}`,body:{qty_here:postQty}})
+        .then(()=>{ const r=sgOpenRequests.find(x=>x.location_id===toLocationId&&x.product_code===code); if(r) r.qty_here=postQty; })
+        .catch(err=>console.warn('تعذّر تحديث كمية طلب جزئي — لن يعطّل التحويل',err));
+    });
   }catch(e){ console.warn(e); }
 }
 /* ═══════════ (ب) تحصيل دفعة على فاتورة قائمة — ذرّي عبر post_invoice_payment ═══════════ */
@@ -4630,7 +4649,7 @@ q('transferForm').addEventListener('submit', async e=>{
     if(!editingTransferId){
       const idem=getDraftKey('transfer');
       const saved=await rpc('post_stock_transfer_transaction',{p_transfer:body,p_items:items,p_idempotency_key:idem,p_user_identifier:appUser?.identifier||''});
-      markStockRequestsResolved(to, items.map(it=>it.product_code)); /* (المهمة ٣) طُلب ولم يوجد ⇒ محلول */
+      markStockRequestsResolved(to, items); /* (المهمة ٣) إغلاق بالتغطية: فقط ما غطّى الحاجة */
       logAction('transfer','pos_stock_transfers',saved.id,`${items.length} صنف - ${locations.find(l=>l.id===from)?.name||''} → ${locations.find(l=>l.id===to)?.name||''}`);
       clearDraftKey('transfer');
       transferId=saved.id;

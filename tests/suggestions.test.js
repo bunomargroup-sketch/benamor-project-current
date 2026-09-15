@@ -145,15 +145,47 @@ test('(٨) تحديد 3 اقتراحات من مصدر واحد ⇒ شاشة ت�
   assert.equal(ctx.__els['transfersMainPanel'].style.display,'','عودة لشاشة التحويلات');
 });
 
-test('(٩) حفظ تحويل ⇒ الطلبات المطابقة تعلَّم resolved (نداء PATCH غير محجوب)', async ()=>{
+test('(٩) الإغلاق بالتغطية: تحويل يغطي الحاجة ⇒ resolved · تحويل وحدة لطلب حاجته أكبر ⇒ يبقى مفتوحًا بكمية محدَّثة', async ()=>{
   const ctx=makeCtx(); seed(ctx); setEls(ctx); calls=[];
-  vm.runInContext(`sgOpenRequests=[{id:'r1',product_code:'LOW1',location_id:'${L11}',resolved:false}];`,ctx);
-  vm.runInContext(`markStockRequestsResolved('${L11}',['LOW1']);`,ctx);
-  await new Promise(r=>setTimeout(r,20));
-  const patch=calls.find(c=>c.method==='PATCH'&&c.u.includes('pos_stock_requests'));
-  assert.ok(patch,'PATCH أُرسل');
-  assert.ok(patch.u.includes('resolved=eq.false')&&patch.u.includes('location_id=eq.L11')&&patch.u.includes('LOW1'),'استهداف الطلب المطابق');
-  assert.equal(JSON.parse(patch.body).resolved,true);
+  /* LOW1 عند 11 يونيو كميته 0 والحد العام 1 ⇒ تحويل 2 يغطي (0+2>1) ⇒ resolved
+     THR5 عند 11 يونيو كميته 2 وحدّ تصنيفه 5 ⇒ تحويل 1 لا يغطي (2+1=3 ≤ 5) ⇒ يبقى مفتوحًا */
+  vm.runInContext(`sgOpenRequests=[
+    {id:'r1',product_code:'LOW1',location_id:'${L11}',qty_here:0,resolved:false},
+    {id:'r2',product_code:'THR5',location_id:'${L11}',qty_here:2,resolved:false}];`,ctx);
+  vm.runInContext(`markStockRequestsResolved('${L11}',[{product_code:'LOW1',qty:2},{product_code:'THR5',qty:1}]);`,ctx);
+  await new Promise(r=>setTimeout(r,25));
+  const patches=calls.filter(c=>c.method==='PATCH'&&c.u.includes('pos_stock_requests'));
+  /* ١) resolved=true للفاتح فقط */
+  const resolvedPatch=patches.find(c=>c.u.includes('product_code=in.(')&&JSON.parse(c.body).resolved===true);
+  assert.ok(resolvedPatch,'PATCH إغلاق موجود');
+  assert.ok(resolvedPatch.u.includes('LOW1'),'LOW1 ضمن المغطاة');
+  assert.ok(!resolvedPatch.u.includes('THR5'),'THR5 ليس ضمن المغطاة (لم تغطَّ حاجته)');
+  /* ٢) تحديث الكمية للمفتوح جزئيًا — بلا resolved */
+  const partialPatch=patches.find(c=>c.u.includes('product_code=eq.THR5'));
+  assert.ok(partialPatch,'PATCH تحديث كمية THR5 موجود');
+  assert.equal(JSON.parse(partialPatch.body).qty_here,3,'qty_here=3 بعد التحويل (2+1)');
+  assert.ok(!('resolved' in JSON.parse(partialPatch.body)),'لا resolved في التحديث الجزئي — يبقى مفتوحًا');
+  /* ٣) الطلب المغطى أُزيل من المفتوحة المحلية والجزئي بقِي بكميته المحدَّثة */
+  assert.equal(vm.runInContext(`sgOpenRequests.some(r=>r.product_code==='LOW1')`,ctx),false,'LOW1 أُغلقت محليًا');
+  const r2=vm.runInContext(`sgOpenRequests.find(r=>r.product_code==='THR5')`,ctx);
+  assert.ok(r2&&Number(r2.qty_here)===3,'THR5 بقيت مفتوحة بكمية 3');
+});
+
+test('(١) الحالات الفارغة الشارحة: أ و(ب) تشرحان لماذا فارغتان وماذا سيملؤهما', ()=>{
+  const ctx=makeCtx(); seed(ctx); setEls(ctx);
+  vm.runInContext(`sgOpenRequests=[]; sgActiveList='A'; renderSuggestionList();`,ctx);
+  const a=ctx.__els['sgABody'].innerHTML;
+  assert.ok(a.includes('تلقائيًا دون أي إجراء'),'(أ) تشرح التسجيل الصامت');
+  assert.ok(a.includes('أعطها أيامًا'),'(أ) تشرح التوقيت');
+  /* (ب) فارغة في هذه البذرة لأن LOW1 (الوحيد المُباع في 11 يونيو) مُتجاهَل */
+  vm.runInContext(`sgDismissals=[{product_code:'LOW1',to_location_id:'L11',dismissed_until:new Date(Date.now()+20*864e5).toISOString()}]; sgActiveList='B'; renderSuggestionList();`,ctx);
+  const b=ctx.__els['sgBBody'].innerHTML;
+  assert.ok(b.includes('سبق بيعها فعليًا في الفرع'),'(ب) تشرح شرط التاريخ');
+  assert.ok(b.includes('مع تراكم فواتير البيع'),'(ب) تشرح متى تمتلئ');
+  assert.ok(b.includes('لا تعويض عنه بشيء آخر'),'(ب) توضح أن الفراغ مقصود');
+  /* ج بلا فلتر تطلب فلترًا (حالتها الفارغة أصلاً) */
+  vm.runInContext(`sgActiveList='C'; q('sgFilterCategory').value=''; q('sgFilterMinQty').value=''; q('sgFilterMinValue').value=''; renderSuggestionList();`,ctx);
+  assert.ok(ctx.__els['sgCBody'].innerHTML.includes('اختر فلترًا واحدًا على الأقل'),'(ج) تطلب فلترًا');
 });
 
 test('(٦-تجاهل) التجاهل يخفي 30 يومًا ثم يعود', ()=>{
