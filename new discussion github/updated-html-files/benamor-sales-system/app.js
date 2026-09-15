@@ -6,8 +6,8 @@ function toggleTheme(){try{var cur=document.documentElement.getAttribute('data-t
 document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
-const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260915-1525';
+const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,transferMinQtyDefault:1,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
+const APP_BUILD='b20260915-1634';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -1025,8 +1025,84 @@ function clearSaleCustomerSelection(){
 }
 
 function renderLocations(){
-  q('locationsBody').innerHTML = locations.map(l=>`<tr><td><b>${esc(l.name)}</b></td><td>${esc(typeLabel(l.location_type))}</td><td>${l.is_sales_location?'<span class="badge green">نعم</span>':'<span class="badge yellow">لا</span>'}</td><td>${l.active?'<span class="badge green">نشط</span>':'<span class="badge gray">غير نشط</span>'}</td><td>${esc(l.notes||'')}</td></tr>`).join('') || '<tr><td colspan="5">لا توجد بيانات. شغل ملف SQL.</td></tr>';
+  q('locationsBody').innerHTML = locations.map(l=>`<tr><td><b>${esc(l.name)}</b></td><td>${esc(typeLabel(l.location_type))}</td><td>${l.is_sales_location?'<span class=\"badge green\">نعم</span>':'<span class=\"badge yellow\">لا</span>'}</td><td>${l.active?'<span class=\"badge green\">نشط</span>':'<span class=\"badge gray\">غير نشط</span>'}</td><td>${esc(l.notes||'')}</td></tr>`).join('') || '<tr><td colspan="5">لا توجد بيانات. شغل ملف SQL.</td></tr>';
 }
+
+/* ═══ (اقتراحات التحويل — المهمة ١) أقسام كل موقع: بوّابة الأقسام والحدود ═══
+   carried=false لتصنيف في موقع ⇒ لا اقتراح نقلٍ إليه إطلاقاً (المهام ٣-٤).
+   min_qty للتصنيف يتقدّم على الحدّ العام (transferMinQtyDefault).
+   التعبئة المبدئية من المخزون الحالي — تخمين يُراجَع من هذه الشاشة. */
+let locationCategoryRules=[], locationCategoryRulesLoaded=false, locationCategoryRulesDirty=false;
+async function ensureLocationCategoryRules(force){
+  if(locationCategoryRulesLoaded && !force) return;
+  try{
+    locationCategoryRules=await api('pos_location_category_rules',{qs:'?select=*&order=category.asc'})||[];
+    locationCategoryRulesLoaded=true;
+  }catch(err){ console.warn('فشل جلب أقسام المواقع — تعمل الشاشة بقيم افتراضية',err); locationCategoryRules=[]; locationCategoryRulesLoaded=true; }
+}
+function lcrRule(locId,cat){ /* Map مبنية مسبقاً — لا find داخل الحلقات */
+  const m=lcrRule._m; return m?m.get(locId+'|'+cat):null;
+}
+function renderLocationCategoryRules(){
+  const head=q('lcrHead'), body=q('lcrBody'); if(!head||!body) return;
+  if(!locations.length){ body.innerHTML='<tr><td>لا توجد مواقع.</td></tr>'; head.innerHTML=''; return; }
+  const isAdmin=currentRole?.role==='admin';
+  const term=(q('lcrSearch')?.value||'').trim();
+  /* Map واحدة للقواعد الحالية + مجموعة التصنيفات (من القواعد ثم من المنتجات للجديدة) */
+  lcrRule._m=new Map(locationCategoryRules.map(r=>[r.location_id+'|'+r.category,r]));
+  const cats=[...new Set([...locationCategoryRules.map(r=>r.category),...products.map(p=>p.category).filter(c=>c&&String(c).trim())])].sort((a,b)=>String(a).localeCompare(String(b),'ar'));
+  const rows=cats.filter(c=>!term||String(c).includes(term));
+  const cols=locations;
+  head.innerHTML=`<tr><th style="min-width:170px">التصنيف <span class="mini">(${rows.length}/${cats.length})</span></th>`+cols.map(l=>`<th>${esc(l.name)}<div class="row" style="gap:4px;margin-top:4px">${isAdmin?`<button class="btn secondary" type="button" style="padding:3px 8px;font-size:11px" onclick="lcrToggleColumn('${l.id}',true)">حدد الكل</button><button class="btn secondary" type="button" style="padding:3px 8px;font-size:11px" onclick="lcrToggleColumn('${l.id}',false)">ألغِ الكل</button>`:''}</div></th>`).join('')+'</tr>';
+  if(!rows.length){ body.innerHTML='<tr><td colspan="'+(cols.length+1)+'">لا تصنيفات مطابقة.</td></tr>'; if(q('lcrInfo'))q('lcrInfo').textContent=''; return; }
+  const disabled=isAdmin?'':' disabled title="التعديل للمدير فقط"';
+  body.innerHTML=rows.map(cat=>`<tr><td><b>${esc(cat)}</b></td>`+cols.map(l=>{
+    const r=lcrRule(l.id,cat);
+    const carried=r?r.carried:true; /* لا صفّ بعد (تصنيف جديد) ⇒ افتراض الحمل حتى يقرر المدير */
+    const minv=r&&r.min_qty!=null?r.min_qty:'';
+    return `<td style="white-space:nowrap"><label style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" data-lcr="${l.id}|${cat}" ${carried?'checked':''}${disabled}> يحمله</label> <input type="number" min="0" step="1" data-lcrmin="${l.id}|${cat}" value="${minv}" placeholder="عام" style="width:64px"${disabled}></td>`;
+  }).join('')+'</tr>').join('');
+  if(q('lcrSaveBtn')) q('lcrSaveBtn').style.display=isAdmin?'':'none';
+  if(q('lcrAdminNote')) q('lcrAdminNote').innerHTML=isAdmin?'':'🔒 العرض للجميع — التعديل للمدير فقط';
+  if(q('lcrInfo')){
+    const carriedTrue=cols.reduce((a,l)=>a+rows.filter(cat=>{const r=lcrRule(l.id,cat); return r?r.carried:true;}).length,0);
+    q('lcrInfo').textContent=`${rows.length} تصنيفاً × ${cols.length} مواقع = ${rows.length*cols.length} خانة — يحملها: ${carriedTrue}`;
+  }
+}
+function lcrToggleColumn(locId,val){
+  if(currentRole?.role!=='admin') return;
+  document.querySelectorAll('input[data-lcr]').forEach(cb=>{
+    const [loc,cat]=String(cb.dataset.lcr).split('|');
+    if(loc===locId) cb.checked=val;
+  });
+}
+async function saveLocationCategoryRules(){
+  if(currentRole?.role!=='admin'){toast('حفظ أقسام المواقع للمدير فقط','warn');return;}
+  const rows=[];
+  document.querySelectorAll('input[data-lcr]').forEach(cb=>{
+    const [loc,cat]=String(cb.dataset.lcr).split('|');
+    const minEl=document.querySelector(`input[data-lcrmin="${loc}|${cat}"]`);
+    const minv=minEl&&String(minEl.value).trim()!==''?Math.max(0,parseInt(minEl.value,10)):null;
+    rows.push({location_id:loc,category:cat,carried:!!cb.checked,min_qty:minv,updated_at:new Date().toISOString(),updated_by:appUser?.identifier||''});
+  });
+  if(!rows.length){toast('لا صفوف لحفظها','warn');return;}
+  if(window.__busy) return; window.__busy=true;
+  try{
+    showLoading(true);
+    /* دفعة واحدة: upsert على المفتاح المركّب — لا نداء لكل خلية */
+    await fetchWithAuthRetry(`${SUPABASE_URL}/rest/v1/pos_location_category_rules`,{
+      method:'POST',
+      headers:{...H,Prefer:'resolution=merge-duplicates,return=representation'},
+      body:JSON.stringify(rows)
+    });
+    await ensureLocationCategoryRules(true);
+    renderLocationCategoryRules();
+    toast('تم حفظ أقسام المواقع ('+rows.length+' خانة) دفعة واحدة','success');
+    logAction('location_category_rules_save','pos_location_category_rules',null,`${rows.length} خانة — بواسطة ${appUser?.identifier||''}`);
+  }catch(err){ console.error(err); toast('خطأ في حفظ الأقسام: '+friendlyError(err),'error'); }
+  finally{ showLoading(false); window.__busy=false; }
+}
+async function onLocationsTabOpen(){ await ensureLocationCategoryRules(); renderLocationCategoryRules(); }
 
 
 
@@ -3209,6 +3285,7 @@ document.querySelectorAll('nav button').forEach(btn=>btn.addEventListener('click
   if(btn.dataset.tab==='dailyCashClosing'){setTimeout(()=>renderDailyCashReport(),50);}
   if(btn.dataset.tab==='stockCount'){setTimeout(()=>renderStockCount(),50);}
   if(btn.dataset.tab==='expensesQuick'){setTimeout(()=>onExpensesTabOpen(),50);}
+  if(btn.dataset.tab==='locations'){setTimeout(()=>onLocationsTabOpen(),50);}
 }));
 window.addEventListener('beforeunload',e=>{ if(saleHasContent()){ e.preventDefault(); e.returnValue=''; } });
 document.addEventListener('keydown',e=>{
@@ -3541,7 +3618,7 @@ function editFinanceAccount(id){
   q('financeAccountCancelBtn')?.classList.remove('hidden');
   q('financeAccountName').focus();
 }
-function fillSettingsForm(){if(!q('settingsBusinessName'))return; q('settingsBusinessName').value=APP_CONFIG.businessName; q('settingsTagline').value=APP_CONFIG.tagline; q('settingsCurrency').value=APP_CONFIG.currency; q('settingsLowStock').value=APP_CONFIG.lowStockThreshold;}
+function fillSettingsForm(){if(!q('settingsBusinessName'))return; q('settingsBusinessName').value=APP_CONFIG.businessName; q('settingsTagline').value=APP_CONFIG.tagline; q('settingsCurrency').value=APP_CONFIG.currency; q('settingsLowStock').value=APP_CONFIG.lowStockThreshold; if(q('settingsTransferMinQty')) q('settingsTransferMinQty').value=APP_CONFIG.transferMinQtyDefault??1;}
 function resetLocalSettings(){localStorage.removeItem('posAppConfig'); location.reload()}
 
 /* ملء حساب الاسترداد: حسب الطريقة + فرع الفاتورة الأصلية (لا فرع المستخدم) */
@@ -3753,8 +3830,8 @@ q('salaryPaymentForm')?.addEventListener('submit',async e=>{e.preventDefault();i
 
 q('settingsForm')?.addEventListener('submit',e=>{
   e.preventDefault();
-  Object.assign(APP_CONFIG,{businessName:q('settingsBusinessName').value.trim()||APP_CONFIG.businessName,tagline:q('settingsTagline').value.trim()||APP_CONFIG.tagline,currency:q('settingsCurrency').value.trim()||APP_CONFIG.currency,lowStockThreshold:Number(q('settingsLowStock').value||0)});
-  localStorage.setItem('posAppConfig',JSON.stringify({businessName:APP_CONFIG.businessName,tagline:APP_CONFIG.tagline,currency:APP_CONFIG.currency,lowStockThreshold:APP_CONFIG.lowStockThreshold,customBrands:APP_CONFIG.customBrands||[],customModels:APP_CONFIG.customModels||[],customColors:APP_CONFIG.customColors||[]}));
+  Object.assign(APP_CONFIG,{businessName:q('settingsBusinessName').value.trim()||APP_CONFIG.businessName,tagline:q('settingsTagline').value.trim()||APP_CONFIG.tagline,currency:q('settingsCurrency').value.trim()||APP_CONFIG.currency,lowStockThreshold:Number(q('settingsLowStock').value||0),transferMinQtyDefault:Math.max(0,Number(q('settingsTransferMinQty')?.value||1))});
+  localStorage.setItem('posAppConfig',JSON.stringify({businessName:APP_CONFIG.businessName,tagline:APP_CONFIG.tagline,currency:APP_CONFIG.currency,lowStockThreshold:APP_CONFIG.lowStockThreshold,transferMinQtyDefault:APP_CONFIG.transferMinQtyDefault,customBrands:APP_CONFIG.customBrands||[],customModels:APP_CONFIG.customModels||[],customColors:APP_CONFIG.customColors||[]}));
   initBranding(); renderAll(); toast('تم حفظ الإعدادات');
 });
 
@@ -4117,7 +4194,7 @@ function addProductOption(type,value){
   const arr=APP_CONFIG[key]||[];
   if(!arr.some(x=>String(x).toLowerCase()===String(value).toLowerCase())) arr.push(value);
   APP_CONFIG[key]=arr.sort((a,b)=>String(a).localeCompare(String(b),'ar'));
-  localStorage.setItem('posAppConfig',JSON.stringify({businessName:APP_CONFIG.businessName,tagline:APP_CONFIG.tagline,currency:APP_CONFIG.currency,lowStockThreshold:APP_CONFIG.lowStockThreshold,customBrands:APP_CONFIG.customBrands||[],customModels:APP_CONFIG.customModels||[],customColors:APP_CONFIG.customColors||[]}));
+  localStorage.setItem('posAppConfig',JSON.stringify({businessName:APP_CONFIG.businessName,tagline:APP_CONFIG.tagline,currency:APP_CONFIG.currency,lowStockThreshold:APP_CONFIG.lowStockThreshold,transferMinQtyDefault:APP_CONFIG.transferMinQtyDefault,customBrands:APP_CONFIG.customBrands||[],customModels:APP_CONFIG.customModels||[],customColors:APP_CONFIG.customColors||[]}));
   renderProductDatalist(); renderProductOptionSettings();
 }
 

@@ -19,7 +19,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<link rel="stylesheet" href="app.css?v=20260915-1525">
+<link rel="stylesheet" href="app.css?v=20260915-1634">
 </head>
 <body class="auth-locked">
   <header>
@@ -140,6 +140,20 @@
         <div class="panel">
           <div class="tools"><h2>الفروع والمخازن</h2><button class="btn secondary" onclick="loadAll()">تحديث</button></div>
           <div class="table-scroll"><table><thead><tr><th>الاسم</th><th>النوع</th><th>البيع</th><th>الحالة</th><th>ملاحظات</th></tr></thead><tbody id="locationsBody"></tbody></table></div>
+        </div>
+
+        <div class="panel">
+          <div class="tools" style="flex-wrap:wrap;gap:8px">
+            <h2>أقسام كل موقع (بوّابة اقتراحات التحويل)</h2>
+            <input id="lcrSearch" type="search" placeholder="بحث في اسم التصنيف…" oninput="renderLocationCategoryRules()" style="min-width:180px">
+            <button class="btn" type="button" id="lcrSaveBtn" onclick="saveLocationCategoryRules()">💾 حفظ (دفعة واحدة)</button>
+          </div>
+          <div class="mini" style="margin:6px 0;padding:8px 10px;border-radius:8px;background:color-mix(in srgb,var(--warn) 10%,transparent)">⚠️ هذه التعبئة مبدئية من المخزون الحالي — راجعها: التصنيف قد يغيب عن فرع لأنه <b>نفد</b> لا لأنه لا يُباع فيه. الحدّ الفارغ = الحدّ الافتراضي العام (الإعدادات).</div>
+          <div id="lcrAdminNote" class="mini" style="margin-bottom:6px"></div>
+          <div class="table-scroll" style="max-height:62vh">
+            <table><thead id="lcrHead"></thead><tbody id="lcrBody"></tbody></table>
+          </div>
+          <div class="mini" id="lcrInfo" style="margin-top:6px"></div>
         </div>
       </section>
 
@@ -893,6 +907,7 @@
             <div><label>الوصف</label><input id="settingsTagline"></div>
             <div><label>العملة</label><input id="settingsCurrency"></div>
             <div><label>حد المخزون المنخفض</label><input id="settingsLowStock" type="number" step="1" min="0"></div>
+            <div><label>الحد الافتراضي لاقتراحات التحويل</label><input id="settingsTransferMinQty" type="number" step="1" min="0"></div>
             <button class="btn" type="submit">حفظ الإعدادات</button>
             <button class="btn secondary" type="button" onclick="resetLocalSettings()">استرجاع الافتراضي</button>
           </form>
@@ -1173,6 +1188,6 @@
 
 
 
-<script src="app.js?v=20260915-1525"></script>
+<script src="app.js?v=20260915-1634"></script>
 </body>
 </html>
