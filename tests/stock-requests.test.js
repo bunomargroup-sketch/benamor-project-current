@@ -21,33 +21,41 @@ test.before(async ()=>{
     await db.exec(fs.readFileSync(path.join(HERE,'supabase/migrations',f),'utf8'));
 });
 
-test('(٢-خادمي) التفرّد اليومي: نفس (منتج، فرع، يوم) مرتين ⇒ صف واحد، واليوم التالي صف جديد', async ()=>{
+test('(٢-خادمي) التفرّد اليومي + العدّاد: ثلاث نداءات ⇒ صف واحد hit_count=3، واليوم التالي صف جديد', async ()=>{
   const loc=(await db.query(`select id from public.pos_locations order by name limit 1`)).rows[0].id;
-  const ins=`insert into public.pos_stock_requests(product_code,location_id,qty_here,available_elsewhere,user_identifier)
-             values ('T-SR-1','${loc}',0,'[{"location_id":"x","name":"آخر","qty":3}]'::jsonb,'admin')
-             on conflict do nothing`;
-  await db.exec(ins); await db.exec(ins); await db.exec(ins);
-  let n=(await db.query(`select count(*)::int n from public.pos_stock_requests where product_code='T-SR-1'`)).rows[0].n;
-  assert.equal(n,1,'ثلاث إرسالات ⇒ صف واحد');
+  const call=`select pos_record_stock_request('T-SR-1','${loc}',0,'[{"location_id":"x","name":"آخر","qty":3}]'::jsonb,'admin')`;
+  await db.exec(call); await db.exec(call); await db.exec(call);
+  let row=(await db.query(`select count(*)::int n, max(hit_count)::int h, max(last_requested_at) l from public.pos_stock_requests where product_code='T-SR-1'`)).rows[0];
+  assert.equal(Number(row.n),1,'ثلاث نداءات ⇒ صف واحد');
+  assert.equal(Number(row.h),3,'hit_count=3 (العدّاد محفوظ لا مبتلع)');
   /* يوم مختلف ⇒ صف ثانٍ */
   await db.exec(`insert into public.pos_stock_requests(product_code,location_id,request_date,qty_here)
                  values ('T-SR-1','${loc}','2026-01-01',0) on conflict do nothing`);
   n=(await db.query(`select count(*)::int n from public.pos_stock_requests where product_code='T-SR-1'`)).rows[0].n;
   assert.equal(n,2,'تاريخ مختلف ⇒ صف إضافي');
-  /* resolved يُحدَّث */
+  /* resolved يُحدَّث، وطلب محلول ثم سُئل ثانيةً بنفس اليوم يبقى محلولاً والعدّاد يزيد */
   await db.exec(`update public.pos_stock_requests set resolved=true, resolved_at=now(), resolved_by='admin' where product_code='T-SR-1'`);
+  await db.exec(call);
+  row=(await db.query(`select count(*)::int n, max(hit_count)::int h, count(*) filter (where resolved)::int r from public.pos_stock_requests where product_code='T-SR-1'`)).rows[0];
+  assert.equal(Number(row.n),2,'صفّان فقط (اليوم + 2026-01-01) — إعادة الطلب لم تنشئ صفاً');
+  assert.equal(Number(row.h),4,'عدّاد اليوم زاد إلى 4');
+  assert.equal(Number(row.r),2,'الصفّان resolved — طلب محلول لا يُفتح ثانيةً بنفس اليوم');
   const r=(await db.query(`select count(*) filter (where resolved)::int resolved, count(*)::int total from public.pos_stock_requests where product_code='T-SR-1'`)).rows[0];
   assert.equal(Number(r.resolved),2,'resolved=true للكل');
   await db.exec(`delete from public.pos_stock_requests where product_code='T-SR-1'`);
 });
 
-test('(٢-خادمي) anon مرفوض · authenticated يقرأ ويسجّل', async ()=>{
+test('(٢-خادمي) anon مرفوض (جدولاً ودالةً) · authenticated يقرأ ويسجّل', async ()=>{
   await db.exec(`set role 'anon'`);
-  let denied=false;
+  let deniedTable=false, deniedFn=false;
   try{ await db.query(`select count(*) from public.pos_stock_requests`); }
-  catch(e){ denied=/permission denied/i.test(String(e.message)); }
-  assert.ok(denied,'anon بلا صلاحية');
+  catch(e){ deniedTable=/permission denied/i.test(String(e.message)); }
+  try{ await db.query(`select pos_record_stock_request('X', (select id from public.pos_locations limit 1), 0, null, 'anon')`); }
+  catch(e){ deniedFn=/permission denied/i.test(String(e.message)); }
+  assert.ok(deniedTable,'anon بلا صلاحية على الجدول');
+  assert.ok(deniedFn,'anon بلا صلاحية على دالة التسجيل');
   await db.exec(`reset role`);
+  await db.exec(`delete from public.pos_stock_requests`);
   await db.exec(`set role 'authenticated'`);
   const w=(await db.query(`select count(*)::int n from public.pos_stock_requests`)).rows[0].n;
   assert.equal(w,0,'authenticated يقرأ');
@@ -60,7 +68,7 @@ let calls=[], toasts=[], MODE={rules:[]};
 const smartFetch=async(url,opts={})=>{
   const u=String(url); calls.push({u,method:opts.method||'GET',headers:opts.headers,body:opts.body});
   const J=(o,s=200)=>({ok:s<400,status:s,text:async()=>JSON.stringify(o),json:async()=>o,clone(){return this}});
-  if(u.includes('pos_stock_requests')&&opts.method==='POST') return J([]);
+  if(u.includes('rpc/pos_record_stock_request')) return J([]);
   if(u.includes('pos_location_category_rules')) return J(MODE.rules);
   return J([]);
 };
@@ -108,14 +116,13 @@ test('(٤) صنف كميته 0 عند الفرع ومتوفّر في مواقع 
   assert.ok(rendered.includes('نفد عندنا'),'الرسم تم');
   assert.equal(calls.length,0,'⭐ لا نداء شبكة قبل/أثناء الرسم — الإشارة غير محجوبة');
   await wait(30); /* الإشارة غير محجوبة تعمل بعد الرسم */
-  const posts=calls.filter(c=>c.method==='POST'&&c.u.includes('pos_stock_requests'));
-  assert.equal(posts.length,1,'نداء تسجيل واحد');
+  const posts=calls.filter(c=>c.method==='POST'&&c.u.includes('rpc/pos_record_stock_request'));
+  assert.equal(posts.length,1,'نداء RPC واحد');
   const body=JSON.parse(posts[0].body);
-  assert.equal(body.product_code,'P-ZERO');
-  assert.equal(body.location_id,'L11');
-  assert.equal(Number(body.qty_here),0);
-  assert.equal(body.available_elsewhere.length,2,'موقعان متوفران (السراج وجنزور)');
-  assert.ok(String(posts[0].headers.Prefer).includes('ignore-duplicates'),'ON CONFLICT DO NOTHING');
+  assert.equal(body.p_product_code,'P-ZERO');
+  assert.equal(body.p_location_id,'L11');
+  assert.equal(Number(body.p_qty_here),0);
+  assert.equal(body.p_available_elsewhere.length,2,'موقعان متوفران (السراج وجنزور)');
   assert.equal(toasts.filter(t=>!/نسخة|تحديث/.test(t.m)).length,0,'⭐ صمت تام: لا رسالة للكاشير');
 });
 
@@ -123,8 +130,8 @@ test('(٢-٥) عشر مرات في نفس اليوم ⇒ النداء يذهب �
   const ctx=makeCtx(); seed(ctx); calls=[];
   for(let i=0;i<10;i++){ vm.runInContext(`renderSaleStockInfo('P-ZERO');`,ctx); }
   await wait(40);
-  const posts=calls.filter(c=>c.method==='POST'&&c.u.includes('pos_stock_requests'));
-  assert.equal(posts.length,10,'عشر نداءات صامتة — والفهرس الفريد يمنع الازدواج خادمياً (مُختبر خادمياً أعلاه)');
+  const posts=calls.filter(c=>c.method==='POST'&&c.u.includes('rpc/pos_record_stock_request'));
+  assert.equal(posts.length,10,'عشر نداءات صامتة — والفهرس الفريد + العدّاد يمنعان الازدواج خادمياً (مُختبر خادمياً أعلاه)');
 });
 
 test('الكمية فوق الحدّ العام ⇒ لا تسجيل', async ()=>{
@@ -138,10 +145,10 @@ test('(٣) حدّ التصنيف يتقدّم على الحدّ العام: كم
   const ctx=makeCtx(); seed(ctx); calls=[];
   vm.runInContext(`renderSaleStockInfo('P-CAT5');`,ctx); /* 3 ≤ 5 (حد الأدوات في 11 يونيو) */
   await wait(30);
-  const posts=calls.filter(c=>c.method==='POST'&&c.u.includes('pos_stock_requests'));
+  const posts=calls.filter(c=>c.method==='POST'&&c.u.includes('rpc/pos_record_stock_request'));
   assert.equal(posts.length,1,'حد التصنيف 5 طبّق لا العام 1');
   const body=JSON.parse(posts[0].body);
-  assert.equal(Number(body.qty_here),3);
+  assert.equal(Number(body.p_qty_here),3);
 });
 
 test('لا كمية في أي موقع آخر ⇒ ليست إشارة تحويل ولا تسجيل', async ()=>{
@@ -153,5 +160,5 @@ test('لا كمية في أي موقع آخر ⇒ ليست إشارة تحويل
     renderSaleStockInfo('P-ONLY-HERE');
   `,ctx);
   await wait(30);
-  assert.equal(calls.filter(c=>c.u.includes('pos_stock_requests')).length,0,'لا مواقع أخرى فيها كمية ⇒ لا تسجيل');
+  assert.equal(calls.filter(c=>c.u.includes('stock_requests')).length,0,'لا مواقع أخرى فيها كمية ⇒ لا تسجيل');
 });

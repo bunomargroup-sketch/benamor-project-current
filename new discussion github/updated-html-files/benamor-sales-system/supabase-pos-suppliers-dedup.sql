@@ -159,6 +159,12 @@ end $$;
 -- (٣) المنتجات بمورد لم تتغير ⇒ 4445:
 --   select count(*) from pos_products where supplier_id is not null;
 --
--- (٤) محاولة إدخال اسم مكرر (بأي حالة أحرف/مسافات) يجب أن تُرفض:
+-- (٤) لا منتجات يتيمة (supplier_id بلا مورد موجود) ⇒ 0 — قِسْناه صفراً قبل التنفيذ،
+--     والتنفيذ الفاشل السابق (بيانات مفصولة) قد يكون حذف مورداً قبل أن يفشل:
+--   select count(*) from pos_products p
+--   where p.supplier_id is not null
+--     and not exists (select 1 from pos_suppliers s where s.id = p.supplier_id);
+--
+-- (٥) محاولة إدخال اسم مكرر (بأي حالة أحرف/مسافات) يجب أن تُرفض:
 --   insert into pos_suppliers(name) values ('  دار الخزف للمواد الصحية (11 يونيو) ');
 -- ═══════════════════════════════════════════

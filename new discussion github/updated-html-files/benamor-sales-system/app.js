@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,transferMinQtyDefault:1,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260915-1711';
+const APP_BUILD='b20260915-1721';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -2738,18 +2738,13 @@ function maybeRecordStockRequest(p){
         .filter(l=>l.id!==saleLoc && getStockQty(l.id,p.code)>0)
         .map(l=>({location_id:l.id,name:l.name,qty:getStockQty(l.id,p.code)}));
       if(!elsewhere.length) return;                       /* لا يوجد في مكان آخر — ليست إشارة تحويل */
-      const body={
-        product_code:p.code,
-        location_id:saleLoc,
-        qty_here:qtyHere,
-        available_elsewhere:elsewhere,
-        user_identifier:appUser?.identifier||''
-      };
-      /* ON CONFLICT DO NOTHING: مرّة واحدة لكل (منتج، فرع، يوم) — بلا قراءة مسبقة */
-      await fetchWithAuthRetry(`${SUPABASE_URL}/rest/v1/pos_stock_requests`,{
-        method:'POST',
-        headers:{...H,Prefer:'resolution=ignore-duplicates'},
-        body:JSON.stringify(body)
+      /* RPC واحد ذرّي: صف واحد لليوم + عدّاد hit_count (ON CONFLICT DO UPDATE داخل الدالة) */
+      await rpc('pos_record_stock_request',{
+        p_product_code:p.code,
+        p_location_id:saleLoc,
+        p_qty_here:qtyHere,
+        p_available_elsewhere:elsewhere,
+        p_user_identifier:appUser?.identifier||''
       });
     }catch(e){ /* صمت تام: ابتلع الفشل — الكاشير لا يرى شيئًا أبدًا */ }
   })();
