@@ -13,7 +13,7 @@
      الحالي + clients.claim + إبلاغ الصفحات «صدر تحديث» لتعرض شريط
      إعادة التحميل (بلا إعادة تحميل تلقائية — الفاتورة المفتوحة أغلى).
    ═══════════════════════════════════════════════════════════════════ */
-const BUILD='20260915-1455'; /* يُستبدل بسكربت النشر */
+const BUILD='20260915-1519'; /* يُستبدل بسكربت النشر */
 const CACHE='benamor-pos-'+BUILD;
 const CORE=['./','./index.html','./app.css','./app.js','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
 const NETWORK_FIRST_PATHS=['/app.js','/app.css','/index.html','/manifest.webmanifest']; /* + كل طلب تنقل */
