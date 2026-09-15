@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,transferMinQtyDefault:1,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260915-1634';
+const APP_BUILD='b20260915-1656';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -2706,6 +2706,46 @@ function renderSaleStockInfo(productCode){
   if(!q('saleStockInfo')) return;
   if(!p){q('saleStockInfo').innerHTML='اختر منتجًا لعرض المخزون في الفروع';return;}
   q('saleStockInfo').innerHTML=`<div><b>${esc(p.code)} - ${esc(p.name)}</b></div><div class="stock-chips">${locations.map(l=>`<span class="stock-chip">${esc(l.name)}: ${money(getStockQty(l.id,p.code))}</span>`).join('')}</div>`;
+  maybeRecordStockRequest(p); /* بعد الرسم — صامتة وغير محجوبة */
+}
+/* ═══ (المهمة ٢) «طُلب ولم يوجد»: أثمن إشارة في المنظومة — كانت تُعرض ثم تُرمى ═══
+   تُسجَّل حين يختار الكاشير منتجاً كميته في فرع البيع ≤ الحدّ (حدّ التصنيف من
+   جدول الأقسام 0050، وإلا الحدّ العام transferMinQtyDefault) وتوجد كمية في
+   موقع آخر. صمت تام: لا نافذة ولا رسالة ولا انتظار — نداء غير محجوب بعد
+   الرسم، يُبتلع فشله، والتفرّد (منتج، فرع، يوم) بفهرس فريد + ON CONFLICT. */
+function transferThresholdFor(category){
+  const saleLoc=q('saleLocation')?.value||appUser?.branch_id||'';
+  const rule=locationCategoryRules.find(r=>r.category===category && r.location_id===saleLoc);
+  return rule && rule.min_qty!=null ? Number(rule.min_qty) : (Number(APP_CONFIG.transferMinQtyDefault??1));
+}
+function maybeRecordStockRequest(p){
+  if(!p||!p.code||!appUser?.id||!authSession?.access_token) return;
+  const saleLoc=q('saleLocation')?.value||appUser?.branch_id; if(!saleLoc) return;
+  (async()=>{
+    try{
+      await ensureLocationCategoryRules(); /* مرة واحدة للجلسة — الحدّ من جدول الأقسام */
+      const threshold=transferThresholdFor(p.category);
+      const qtyHere=getStockQty(saleLoc,p.code);
+      if(qtyHere>threshold) return;                       /* عنده ما يكفي */
+      const elsewhere=locations
+        .filter(l=>l.id!==saleLoc && getStockQty(l.id,p.code)>0)
+        .map(l=>({location_id:l.id,name:l.name,qty:getStockQty(l.id,p.code)}));
+      if(!elsewhere.length) return;                       /* لا يوجد في مكان آخر — ليست إشارة تحويل */
+      const body={
+        product_code:p.code,
+        location_id:saleLoc,
+        qty_here:qtyHere,
+        available_elsewhere:elsewhere,
+        user_identifier:appUser?.identifier||''
+      };
+      /* ON CONFLICT DO NOTHING: مرّة واحدة لكل (منتج، فرع، يوم) — بلا قراءة مسبقة */
+      await fetchWithAuthRetry(`${SUPABASE_URL}/rest/v1/pos_stock_requests`,{
+        method:'POST',
+        headers:{...H,Prefer:'resolution=ignore-duplicates'},
+        body:JSON.stringify(body)
+      });
+    }catch(e){ /* صمت تام: ابتلع الفشل — الكاشير لا يرى شيئًا أبدًا */ }
+  })();
 }
 
 function updateSaleTotal(){
