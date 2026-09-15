@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,transferMinQtyDefault:1,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260915-1656';
+const APP_BUILD='b20260915-1711';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -1058,12 +1058,19 @@ function renderLocationCategoryRules(){
   const disabled=isAdmin?'':' disabled title="التعديل للمدير فقط"';
   body.innerHTML=rows.map(cat=>`<tr><td><b>${esc(cat)}</b></td>`+cols.map(l=>{
     const r=lcrRule(l.id,cat);
-    const carried=r?r.carried:true; /* لا صفّ بعد (تصنيف جديد) ⇒ افتراض الحمل حتى يقرر المدير */
+    const carried=r?r.carried:false; /* لا صفّ (تصنيف جديد) ⇒ «غير محمول» حتى يقرر المدير — لا تسريب صامت لقسم خاص بفرع آخر */
     const minv=r&&r.min_qty!=null?r.min_qty:'';
     return `<td style="white-space:nowrap"><label style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" data-lcr="${l.id}|${cat}" ${carried?'checked':''}${disabled}> يحمله</label> <input type="number" min="0" step="1" data-lcrmin="${l.id}|${cat}" value="${minv}" placeholder="عام" style="width:64px"${disabled}></td>`;
   }).join('')+'</tr>').join('');
+  /* التصنيفات الجديدة (في المنتجات) بلا أي صف قواعد — تُعامل «غير محمول» في كل المواقع */
+  const ruleCats=new Set(locationCategoryRules.map(r=>r.category));
+  const newCats=rows.filter(c=>!ruleCats.has(c));
   if(q('lcrSaveBtn')) q('lcrSaveBtn').style.display=isAdmin?'':'none';
-  if(q('lcrAdminNote')) q('lcrAdminNote').innerHTML=isAdmin?'':'🔒 العرض للجميع — التعديل للمدير فقط';
+  if(q('lcrAdminNote')){
+    q('lcrAdminNote').innerHTML=
+      (isAdmin&&newCats.length?'<div style="padding:8px 12px;border-radius:8px;background:color-mix(in srgb,var(--warn) 14%,transparent);font-weight:700">🆕 '+newCats.length+' تصنيفاً جديداً بلا قواعد — تُعامل «غير محمول» في كل المواقع (منعاً للتسريب الصامت) حتى تراجعها وتحفظ: '+newCats.slice(0,5).map(esc).join('، ')+(newCats.length>5?' وغيرها':'')+'</div>':'')+
+      (isAdmin?'':'🔒 العرض للجميع — التعديل للمدير فقط');
+  }
   if(q('lcrInfo')){
     const carriedTrue=cols.reduce((a,l)=>a+rows.filter(cat=>{const r=lcrRule(l.id,cat); return r?r.carried:true;}).length,0);
     q('lcrInfo').textContent=`${rows.length} تصنيفاً × ${cols.length} مواقع = ${rows.length*cols.length} خانة — يحملها: ${carriedTrue}`;

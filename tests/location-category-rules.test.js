@@ -207,6 +207,44 @@ test('(و١) الحفظ: نداء شبكة واحد (upsert) بكل الخانا
   assert.equal(lsr.min_qty,null,'حد فارغ ⇒ null ⇒ الحدّ العام');
 });
 
+test('(و١-٣) تصنيف جديد بلا صفوف ⇒ «غير محمول» في كل المواقع + شريط يعدّه', ()=>{
+  const ctx=makeCtx(); seed(ctx);
+  ['lcrHead','lcrBody','lcrSearch','lcrInfo','lcrAdminNote','lcrSaveBtn'].forEach(id=>ctx.document.getElementById(id));
+  /* تصنيف جديد في المنتجات بلا أي صف قواعد */
+  vm.runInContext(`products.push({code:'PX',name:'منتج جديد',category:'قسم جديد خاص بالسراج',retail_price:7});`,ctx);
+  vm.runInContext(`renderLocationCategoryRules();`,ctx);
+  const body=ctx.__els['lcrBody'].innerHTML;
+  /* خاناته الثلاث غير محمولة */
+  const m=body.match(/data-lcr="L[^"]*\|قسم جديد خاص بالسراج" checked/g)||[];
+  assert.equal(m.length,0,'لا خانة محمولة للتصنيف الجديد');
+  const mAll=(body.match(/data-lcr="L[^"]*\|قسم جديد خاص بالسراج"/g)||[]).length;
+  assert.equal(mAll,3,'ثلاث خانات (لكل موقع) — كلها غير محمولة');
+  /* الشريط */
+  const note=ctx.__els['lcrAdminNote'].innerHTML;
+  assert.ok(note.includes('🆕 1 تصنيفاً جديداً'),'الشريط يعدّه: '+note.slice(0,80));
+  assert.ok(note.includes('قسم جديد خاص بالسراج'),'اسمه في الشريط');
+  /* حدد الكل يفعّلها ثم الحفظ ينشئ صفوفها */
+  const cbs=[['L11'],['LSR'],['LJZ']].map(([l])=>Object.assign(el(),{dataset:{lcr:l+'|قسم جديد خاص بالسراج'},checked:false}));
+  MODE.cbs=cbs;
+  vm.runInContext(`lcrToggleColumn('LSR',true);`,ctx);
+  assert.equal(cbs[1].checked,true,'حدد الكل عملت للتصنيف الجديد');
+});
+
+test('(و١-٤) الحفظ يُبطل الكاش: جلبٌ جديد من الخادم بعد الـupsert مباشرة', async ()=>{
+  const ctx=makeCtx(); seed(ctx);
+  ['lcrHead','lcrBody','lcrSearch','lcrInfo','lcrAdminNote','lcrSaveBtn'].forEach(id=>ctx.document.getElementById(id));
+  vm.runInContext(`renderLocationCategoryRules();`,ctx);
+  calls=[];
+  MODE.cbs=[Object.assign(el(),{dataset:{lcr:'L11|أدوات'},checked:false})];
+  ctx.document.querySelector('input[data-lcrmin="L11|أدوات"]').value='';
+  await vm.runInContext(`saveLocationCategoryRules();`,ctx);
+  const seq=calls.map(c=>({m:c.method,u:c.u.includes('pos_location_category_rules')?'RULES':(c.u.includes('audit')?'AUDIT':'OTHER')}));
+  const postIdx=seq.findIndex(x=>x.m==='POST'&&x.u==='RULES');
+  const getIdx=seq.findIndex(x=>x.m==='GET'&&x.u==='RULES');
+  assert.ok(postIdx>-1,'حُفظ الـupsert');
+  assert.ok(getIdx>-1&&getIdx>postIdx,'⭐ جلب جديد من الخادم بعد الحفظ (الكاش أُبطل — force=true)');
+});
+
 test('(و١) الإعدادات: الحد الافتراضي يُحفظ ويُستعمل (الافتراضي 1)', ()=>{
   const ctx=makeCtx();
   assert.equal(vm.runInContext(`APP_CONFIG.transferMinQtyDefault`,ctx),1,'الافتراضي 1');
