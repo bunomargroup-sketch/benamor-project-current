@@ -12,7 +12,11 @@
      3) index.html: app.css?v=<BUILD> و app.js?v=<BUILD>
      4) sw.js    : BUILD و CACHE = 'benamor-pos-<BUILD>'
      5) ينسخ الملفات الأربعة إلى updated-html-files/benamor-sales-system/
-   القاعدة: البصمة نفسها في الأمكنة الثلاثة — كاش واحد، صفحة تشير
+     6) عارض الأسعار (ملف واحد): PC_BUILD='b<BUILD>' + ?v=<BUILD> على
+        manifest/apple-touch-icon + CACHE='benamor-pricechecker-<BUILD>'
+        في sw.js الخاص به
+     7) ينسخ pricechecker/index.html + sw.js إلى updated-html-files/pricechecker/
+   القاعدة: البصمة نفسها في الأمكنة كلها — كاش واحد، صفحة تشير
    للأصل الجديد، والـSW يطابق.
    ═══════════════════════════════════════════════════════════════════ */
 const fs=require('fs'), path=require('path');
@@ -47,3 +51,21 @@ fs.mkdirSync(OUT,{recursive:true});
 console.log('✓ البصمة الجديدة: '+BUILD);
 console.log('  APP_BUILD=b'+BUILD+' · app.js?v='+BUILD+' · benamor-pos-'+BUILD);
 console.log('✓ نُسخ app.js/index.html/sw.js/app.css إلى updated-html-files');
+
+/* ── عارض الأسعار: بصمة مستقلة (PC_BUILD + ?v= + كاش SW) ── */
+const PCAPP='new discussion github/apps/pricechecker';
+const PCOUT='new discussion github/updated-html-files/pricechecker';
+let pc=fs.readFileSync(path.join(PCAPP,'index.html'),'utf8');
+pc=stamp(pc,/const PC_BUILD='[^']*';/,`const PC_BUILD='b${BUILD}';`);
+pc=pc.replace(/manifest\.webmanifest\?v=\d{8}-\d{4}/,'manifest.webmanifest?v='+BUILD)
+     .replace(/icons\/icon-192\.png\?v=\d{8}-\d{4}/,'icons/icon-192.png?v='+BUILD);
+if(!pc.includes('manifest.webmanifest?v='+BUILD)) throw new Error('pricechecker: لم تُختم روابط الأصول');
+let pcsw=fs.readFileSync(path.join(PCAPP,'sw.js'),'utf8');
+pcsw=stamp(pcsw,/const CACHE='benamor-pricechecker[^']*';/,"const CACHE='benamor-pricechecker-"+BUILD+"';");
+fs.writeFileSync(path.join(PCAPP,'index.html'),pc);
+fs.writeFileSync(path.join(PCAPP,'sw.js'),pcsw);
+fs.mkdirSync(PCOUT,{recursive:true});
+fs.copyFileSync(path.join(PCAPP,'index.html'),path.join(PCOUT,'index.html'));
+fs.copyFileSync(path.join(PCAPP,'sw.js'),path.join(PCOUT,'sw.js'));
+console.log('✓ العارض: PC_BUILD=b'+BUILD+' · ?v='+BUILD+' · benamor-pricechecker-'+BUILD);
+console.log('✓ نُسخ pricechecker/index.html + sw.js إلى updated-html-files/pricechecker');
