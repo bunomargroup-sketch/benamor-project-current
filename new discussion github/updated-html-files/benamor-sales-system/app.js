@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,transferMinQtyDefault:1,marginRedBelow:5,marginOrangeBelow:15,marginYellowBelow:30,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260916-1238';
+const APP_BUILD='b20260916-1253';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -783,6 +783,10 @@ function renderDashboard(){
   const today=new Date().toISOString().slice(0,10); const scScope=sellerBranchScope(); const todaySales=sales.filter(s=>s.sale_date===today && (!scScope||s.location_id===scScope));
   if(q('todaySalesTotal')) q('todaySalesTotal').textContent=money(todaySales.reduce((a,s)=>a+Number(s.total||0),0));
   if(q('todaySalesCount')) q('todaySalesCount').textContent=todaySales.length;
+  /* (المهمة ٣) مرتجعات بلا فاتورة اليوم — تظهر فقط حين N > 0 */
+  const todayNoInvRet=saleReturns.filter(r=>!r.sale_id&&String(r.return_date||'').slice(0,10)===today);
+  const dashNoInv=q('dashNoInvoiceReturns');
+  if(dashNoInv){ if(todayNoInvRet.length){dashNoInv.classList.remove('hidden'); dashNoInv.innerHTML=`<h3>⚠️ مرتجعات بلا فاتورة اليوم</h3><div class="num">${todayNoInvRet.length} بقيمة ${money(todayNoInvRet.reduce((a,r)=>a+Number(r.total||0),0))} ${APP_CONFIG.currency}</div>`;} else dashNoInv.classList.add('hidden'); }
   renderDashboardLists();
   renderReorderAlerts();
 }
@@ -1718,7 +1722,7 @@ function renderSaleProductPicker(){
   });
   const pickerCols=['code','name','brand','color','supplier_name','available','retail_price','margin_value','margin_pct'];
   const key=pickerCols[pickerSortIndex]||'available';
-  const loc=(productPickerTarget==='proforma'?q('proformaLocation')?.value:(productPickerTarget==='purchase'?q('purchaseLocation')?.value:(productPickerTarget==='transfer'?q('transferFrom')?.value:(canSelectSaleBranch()?q('saleLocation')?.value:(appUser?.branch_id||q('saleLocation')?.value)))))||'';
+  const loc=(productPickerTarget==='noInvoiceReturn'?(appUser?.branch_id||''):(productPickerTarget==='proforma'?q('proformaLocation')?.value:(productPickerTarget==='purchase'?q('purchaseLocation')?.value:(productPickerTarget==='transfer'?q('transferFrom')?.value:(canSelectSaleBranch()?q('saleLocation')?.value:(appUser?.branch_id||q('saleLocation')?.value))))))||'';
   const maps=pickerPerfMaps(loc);
   rows.sort((a,b)=>{const av=key==='available'?(maps.availableMap.get(String(a.code))||0):(key==='margin_value'?(maps.mvMap.get(String(a.code))||0):(key==='margin_pct'?(maps.mpMap.get(String(a.code))||0):(a[key]??''))); const bv=key==='available'?(maps.availableMap.get(String(b.code))||0):(key==='margin_value'?(maps.mvMap.get(String(b.code))||0):(key==='margin_pct'?(maps.mpMap.get(String(b.code))||0):(b[key]??''))); const na=parseFloat(av), nb=parseFloat(bv); const c=(!isNaN(na)&&!isNaN(nb))?na-nb:String(av).localeCompare(String(bv),'ar'); return pickerSortDir==='asc'?c:-c;});
   const shown=rows.slice(0,250);
@@ -1749,7 +1753,7 @@ function pickerApplySelection(rows){
 function addSaleProductFromPicker(code,qtyOverride=null){
   const p=products.find(x=>String(x.code)===String(code)); if(!p){toast('لم يتم العثور على المنتج'); return;}
   const qty=Number((qtyOverride ?? q('salePickerQty').value) || 1);
-  if(productPickerTarget==='proforma') addOrIncrementProformaProduct(p,qty); else if(productPickerTarget==='purchase') addOrIncrementPurchaseProduct(p,qty); else if(productPickerTarget==='transfer') addOrIncrementTransferProduct(p,qty); else addOrIncrementSaleProduct(p,qty);
+  if(productPickerTarget==='proforma') addOrIncrementProformaProduct(p,qty); else if(productPickerTarget==='purchase') addOrIncrementPurchaseProduct(p,qty); else if(productPickerTarget==='transfer') addOrIncrementTransferProduct(p,qty); else if(productPickerTarget==='noInvoiceReturn') addNoInvoiceReturnProduct(p,qty); else addOrIncrementSaleProduct(p,qty);
   q('salePickerQty').value='1';
   toast('تمت إضافة المنتج للفاتورة');
 }
@@ -2231,8 +2235,8 @@ function renderReturns(){
   });
   rows.sort((a,b)=>String(b.r.return_date||'').localeCompare(String(a.r.return_date||'')));
   if(!rows.length){
-    body.innerHTML='<tr><td colspan="9">لا توجد مرتجعات مطابقة للفلاتر.</td></tr>';
-    if(q('returnsTotalFoot')) q('returnsTotalFoot').innerHTML='<tr><td colspan="9" class="mini">—</td></tr>';
+    body.innerHTML='<tr><td colspan="10">لا توجد مرتجعات مطابقة للفلاتر.</td></tr>';
+    if(q('returnsTotalFoot')) q('returnsTotalFoot').innerHTML='<tr><td colspan="10" class="mini">—</td></tr>';
     if(q('returnsListInfo')) q('returnsListInfo').textContent='';
     return;
   }
@@ -2243,10 +2247,10 @@ function renderReturns(){
     const an=negativeDoc?accountName:(accountName||returnAccountName(r.id).name);
     const rec=negativeDoc?recorder:returnRecorder(r.id);
     const safe=String(r.id||'').replace(/'/g,"\'");
-    const badge=negativeDoc?' <span class="badge red" title="حركة استرداد أُنشئت بفاتورة سالبة قبل تحصين المنظومة — لا يوجد مستند مرتجع لها">بفاتورة سالبة (بلا مستند)</span>':'';
-    return `<tr data-ret="${safe}" data-sale="${String(r.sale_id||'').replace(/'/g,"\\'")}"><td>${esc(r.return_date)}</td><td class="ltr"><b>${esc(String(r.id).slice(0,8))}</b>${badge}</td><td class="ltr">${esc(origInv)}</td><td>${esc(cust?.name||'زبون نقدي')}</td><td>${esc(locMap.get(r.location_id)||'—')}</td><td><b>${money(amount)}</b></td><td>${negativeDoc?'فاتورة سالبة':esc(typeLabel(r.refund_method))}</td><td>${esc(an)}</td><td>${esc(rec)}</td></tr>`;
+    const badge=negativeDoc?' <span class="badge red" title="حركة استرداد أُنشئت بفاتورة سالبة قبل تحصين المنظومة — لا يوجد مستند مرتجع لها">بفاتورة سالبة (بلا مستند)</span>':(r.sale_id?'':' <span class="badge red" title="مرتجع بلا فاتورة أصلية — بضاعة بيعت قبل دخول المنظومة">بلا فاتورة</span>');
+    return `<tr data-ret="${safe}" data-sale="${String(r.sale_id||'').replace(/'/g,"\\'")}"><td>${esc(r.return_date)}</td><td class="ltr"><b>${esc(String(r.id).slice(0,8))}</b>${badge}</td><td class="ltr">${esc(origInv)}</td><td>${esc(cust?.name||'زبون نقدي')}</td><td>${esc(locMap.get(r.location_id)||'—')}</td><td><b>${money(amount)}</b></td><td>${negativeDoc?'فاتورة سالبة':esc(typeLabel(r.refund_method))}</td><td>${esc(an)}</td><td class="mini">${esc(r.reason||'—')}</td><td>${esc(rec)}</td></tr>`;
   }).join('');
-  if(q('returnsTotalFoot')) q('returnsTotalFoot').innerHTML=`<tr><td colspan="5"><b>إجمالي المرتجعات المعروضة</b></td><td><b>${money(total)} ${APP_CONFIG.currency}</b></td><td colspan="3" class="mini">${rows.length} مرتجعاً</td></tr>`;
+  if(q('returnsTotalFoot')) q('returnsTotalFoot').innerHTML=`<tr><td colspan="5"><b>إجمالي المرتجعات المعروضة</b></td><td><b>${money(total)} ${APP_CONFIG.currency}</b></td><td colspan="4" class="mini">${rows.length} مرتجعاً</td></tr>`;
   if(q('returnsListInfo')) q('returnsListInfo').textContent=`النتائج: ${rows.length}`;
 }
 function openReturnDetails(id){
@@ -3818,7 +3822,65 @@ function calcBack(){calcExpr=calcExpr.slice(0,-1); calcUpdate()}
 function calcEquals(){try{const safe=calcExpr.replace(/[^0-9+\-*/.()]/g,''); calcExpr=String(Function('return ('+safe+')')()); calcUpdate()}catch(e){toast('عملية غير صحيحة')}}
 function calcCopyToPrice(){calcEquals(); const tr=currentSaleLine(); const inp=tr?.querySelector('.si-price'); if(inp){inp.value=moneyVal(q('calcDisplay').value); updateSaleTotal(); inp.focus();}else toast('اختر سطر صنف أولاً')}
 
-function closeSaleReturnModal(){q('saleReturnModal').classList.remove('show')}
+function closeSaleReturnModal(){q('saleReturnModal').classList.remove('show'); noInvoiceReturnMode=false; noInvoiceReturnItems=[]; setNoInvoiceReturnUI(false);}
+
+/* ═══ (المهمة ٣) مرتجع بلا فاتورة — لكل المستخدمين بلا حدّ مبلغ ولا موافقة ═══
+   قرار صاحب العمل. الضابط هو الرؤية: سبب إلزامي + سجل تدقيق بالسبب واسم
+   المستخدم وتعديل السعر + وسم «بلا فاتورة» في قائمة المرتجعات + سطر في
+   لوحة المدير + دخول إغلاق الخزينة اليومي عبر حركة customer_refund. */
+let noInvoiceReturnMode=false, noInvoiceReturnItems=[];
+function setNoInvoiceReturnUI(on){
+  const w=q('noInvoiceReturnWarn'), r=q('noInvoiceReasonWrap'), t=q('saleReturnItemsTable'), n=q('noInvoiceItemsWrap'), info=q('returnInvoiceInfo'), btn=q('saleReturnSubmitBtn');
+  [w,r,n].forEach(el=>el&&el.classList.toggle('hidden',!on));
+  if(t)t.classList.toggle('hidden',on);
+  if(info)info.classList.toggle('hidden',on);
+  if(btn)btn.textContent=on?'حفظ مرتجع بلا فاتورة':'حفظ فاتورة المرتجع';
+}
+function openNoInvoiceReturn(){
+  if(!appUser?.branch_id){toast('لا يوجد فرع مرتبط بالمستخدم — لا يمكن تسجيل المرتجع','warn');return;}
+  noInvoiceReturnMode=true; noInvoiceReturnItems=[]; returningSale=null; returningSaleId=null; returningSaleItems=[];
+  q('saleReturnTitle').textContent='مرتجع بدون فاتورة';
+  q('saleReturnSub').textContent='بضاعة بيعت قبل دخول المنظومة تعود اليوم';
+  setNoInvoiceReturnUI(true);
+  q('returnInvoiceInfo').innerHTML='';
+  q('saleReturnDate').value=new Date().toISOString().slice(0,10);
+  q('saleReturnRefundMethod').value='cash';
+  q('saleReturnReason').value='';
+  q('saleReturnNotes').value='';
+  renderNoInvoiceReturnItems(); refreshSaleReturnAccountOptions();
+  q('saleReturnModal').classList.add('show');
+  setTimeout(()=>q('saleReturnReason')?.focus(),50);
+}
+function openNoInvoiceReturnPicker(){
+  productPickerTarget='noInvoiceReturn';
+  fillPickerSelect('salePickerCategory','category','كل التصنيفات');
+  fillPickerSelect('salePickerBrand','brand','كل الماركات');
+  fillPickerSelect('salePickerColor','color','كل الألوان');
+  fillPickerSelect('salePickerSupplier','supplier_name','كل الموردين');
+  q('salePickerQty').value=q('salePickerQty').value||'1';
+  pickerSelectedIndex=-1;
+  q('saleProductPickerModal').classList.add('show');
+  renderSaleProductPicker();
+  setTimeout(()=>q('salePickerSearch')?.focus(),50);
+}
+function addNoInvoiceReturnProduct(p,qty=1){
+  if(!p)return;
+  const code=String(p.code||'').trim();
+  const ex=noInvoiceReturnItems.find(x=>x.product_code===code);
+  if(ex)ex.qty=Number(ex.qty||0)+Number(qty||1);
+  else noInvoiceReturnItems.push({product_code:code,product_name:p.name||code,qty:Number(qty||1),unit_price:Number(p.retail_price||0),catalog_price:Number(p.retail_price||0),price_edited:false});
+  renderNoInvoiceReturnItems();
+}
+function renderNoInvoiceReturnItems(){
+  const b=q('noInvoiceReturnItemsBody'); if(!b)return;
+  b.innerHTML=noInvoiceReturnItems.map((it,i)=>`<tr><td class="ltr">${esc(it.product_code)}</td><td>${esc(it.product_name)}</td><td><input class="nir-qty" data-i="${i}" type="number" step="1" min="1" value="${it.qty}" oninput="noInvoiceQty(this)"></td><td><input class="nir-price ltr" data-i="${i}" type="text" inputmode="decimal" value="${it.unit_price}" oninput="noInvoicePrice(this)"></td><td><b>${money(Number(it.qty||0)*Number(it.unit_price||0))}</b></td><td><button type="button" class="btn danger" onclick="noInvoiceRemove(${i})">حذف</button></td></tr>`).join('')||'<tr><td colspan="6">لم تُضف أصناف — استخدم «اختيار صنف»</td></tr>';
+  updateNoInvoiceReturnTotal();
+}
+function noInvoiceQty(inp){const it=noInvoiceReturnItems[Number(inp.dataset.i)]; if(!it)return; it.qty=Math.max(1,Number(inp.value||1)); renderNoInvoiceReturnItems();}
+function noInvoicePrice(inp){const it=noInvoiceReturnItems[Number(inp.dataset.i)]; if(!it)return; it.unit_price=moneyVal(inp.value); it.price_edited=Math.abs(Number(it.unit_price||0)-Number(it.catalog_price||0))>0.0001; renderNoInvoiceReturnItems();}
+function noInvoiceRemove(i){noInvoiceReturnItems.splice(Number(i),1); renderNoInvoiceReturnItems();}
+function getNoInvoiceReturnItems(){return noInvoiceReturnItems.filter(it=>Number(it.qty||0)>0).map(it=>({product_code:it.product_code,product_name:it.product_name,qty:Number(it.qty||0),unit_price:Number(it.unit_price||0),price_edited:!!it.price_edited}));}
+function updateNoInvoiceReturnTotal(){const total=getNoInvoiceReturnItems().reduce((a,x)=>a+x.qty*x.unit_price,0); if(q('saleReturnTotal'))q('saleReturnTotal').textContent=`الإجمالي: ${money(total)} ${APP_CONFIG.currency}`;}
 async function openSaleReturn(id){
   if(sales.find(x=>x.id===id)?.offline_pending){toast('فاتورة محلية بانتظار المزامنة — المرتجع متاح بعد وصولها للخادم','warn');return;}
   try{
@@ -3937,7 +3999,7 @@ function resetLocalSettings(){localStorage.removeItem('posAppConfig'); location.
 function refreshSaleReturnAccountOptions(){
   const sel=q('saleReturnAccount'); const warn=q('saleReturnAccountWarn'); if(!sel) return;
   const method=q('saleReturnRefundMethod')?.value;
-  const loc=returningSale?.location_id||null;
+  const loc=returningSale?.location_id||(noInvoiceReturnMode?(appUser?.branch_id||null):null);
   if(!['cash','bank_transfer','card'].includes(method)){
     sel.innerHTML='<option value="">—</option>'; sel.value=''; sel.disabled=true;
     if(warn){warn.style.display='none';}
@@ -3965,6 +4027,29 @@ q('saleReturnRefundMethod')?.addEventListener('change',refreshSaleReturnAccountO
 q('saleReturnForm').addEventListener('submit', async e=>{
   e.preventDefault();
   if(window.__busy) return; window.__busy=true;
+  if(noInvoiceReturnMode){ /* (المهمة ٣) مرتجع بلا فاتورة */
+    const nItems=getNoInvoiceReturnItems();
+    if(!nItems.length){toast('أضف صنفاً واحداً على الأقل','warn'); window.__busy=false; return;}
+    const reason=q('saleReturnReason')?.value.trim()||'';
+    if(!reason){toast('سبب المرتجع إلزامي — لا يُحفظ المرتجع بدونه','warn'); window.__busy=false; return;}
+    try{
+      showLoading(true);
+      const method=q('saleReturnRefundMethod').value;
+      const account_id=['cash','bank_transfer','card'].includes(method)?(q('saleReturnAccount')?.value||''):null;
+      if(['cash','bank_transfer','card'].includes(method)&&!account_id){toast('اختر الحساب الذي يخرج منه المال — لا افتراض','warn'); window.__busy=false; return;}
+      const nTotal=nItems.reduce((a,x)=>a+x.qty*x.unit_price,0);
+      const body={sale_id:null,return_date:q('saleReturnDate').value,location_id:appUser?.branch_id,customer_id:null,refund_method:method,account_id,reason,notes:q('saleReturnNotes').value.trim()||null};
+      const anyEdited=nItems.some(x=>x.price_edited);
+      const idem=getDraftKey('noInvoiceReturn');
+      const ret=await rpc('post_sale_return_transaction',{p_return:body,p_items:nItems,p_idempotency_key:idem,p_user_identifier:appUser?.identifier||''});
+      logAction('no_invoice_return','pos_sale_returns',ret.id,`السبب: ${reason} | ${nItems.length} صنف - ${money(nTotal)} ${APP_CONFIG.currency} | سعر معدَّل: ${anyEdited?'نعم':'لا'}`);
+      clearDraftKey('noInvoiceReturn');
+      closeSaleReturnModal(); toast('تم حفظ مرتجع بلا فاتورة وتحديث المخزون','success');
+      applyReturnLocally(ret, body, nItems, null); refreshAfterLocalUpdate();
+    }catch(err){console.error(err);toast('خطأ في حفظ المرتجع: '+friendlyError(err),'error')}
+    finally{showLoading(false);window.__busy=false}
+    return;
+  }
   const items=getReturnItems(); if(!items.length){toast('اختر كمية مرتجع أولاً','warn'); window.__busy=false; return;}
   try{
     showLoading(true);

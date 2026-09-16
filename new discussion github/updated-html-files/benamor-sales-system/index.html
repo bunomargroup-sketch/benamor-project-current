@@ -19,7 +19,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<link rel="stylesheet" href="app.css?v=20260916-1238">
+<link rel="stylesheet" href="app.css?v=20260916-1253">
 </head>
 <body class="auth-locked">
   <header>
@@ -88,6 +88,7 @@
           <div class="card"><h3>ديون الزبائن</h3><div class="num" id="customersDebtTotal">0</div></div>
           <div class="card"><h3>إجمالي أرصدة الموردين</h3><div class="num" id="suppliersBalance">0</div></div>
           <div class="card"><h3>أصناف تحت حد الطلب</h3><div class="num" id="reorderCount">0</div></div>
+          <div class="card hidden" id="dashNoInvoiceReturns" style="grid-column:1/-1;border-color:rgba(217,119,6,.5)"></div>
         </div>
         <div class="panel">
           <h2>ملخص سريع</h2>
@@ -433,6 +434,7 @@
             <span class="mini" id="selectedSaleInfo">اختر فاتورة من الجدول أولاً</span>
             <span class="mini ctx-hint"><i class="ti ti-mouse"></i> اضغط بزر الفأرة الأيمن على أي صف لعرض قائمة الإجراءات</span>
           </div>
+          <div class="row" style="margin:0 0 8px"><button class="btn secondary" type="button" onclick="openNoInvoiceReturn()">↩ مرتجع بدون فاتورة</button><span class="mini">بضاعة بيعت قبل دخول المنظومة تعود اليوم</span></div>
           <div class="table-scroll"><table><thead><tr><th>رقم</th><th>التاريخ</th><th>الفرع</th><th>الزبون</th><th>طريقة الدفع</th><th>الإجمالي</th><th>المدفوع</th><th>الدين</th><th>إجراء</th></tr></thead><tbody id="salesBody"></tbody></table></div>
           </div>
 
@@ -443,10 +445,10 @@
               <div><label>الفرع</label><select id="retFilterBranch" onchange="renderReturns()"><option value="">كل الفروع</option></select></div>
               <div><label>طريقة الاسترداد</label><select id="retFilterMethod" onchange="renderReturns()"><option value="">كل الطرق</option><option value="cash">نقدي</option><option value="bank_transfer">تحويل مصرفي</option><option value="card">بطاقة</option><option value="credit_reduction">تخفيض دين</option><option value="none">بدون استرداد نقدي</option></select></div>
               <div><label>بحث برقم الفاتورة الأصلية</label><input id="retFilterSearch" placeholder="مثال: INV-1095" oninput="renderReturns()"></div>
-              <div class="row" style="align-items:end"><button class="btn secondary" type="button" onclick="resetReturnFilters()">مسح الفلاتر</button></div>
+              <div class="row" style="align-items:end"><button class="btn" type="button" onclick="openNoInvoiceReturn()">↩ مرتجع بدون فاتورة</button><button class="btn secondary" type="button" onclick="resetReturnFilters()">مسح الفلاتر</button></div>
             </div>
             <div class="table-scroll"><table>
-              <thead><tr><th>التاريخ</th><th>المرتجع</th><th>الفاتورة الأصلية</th><th>الزبون</th><th>الفرع</th><th>الإجمالي</th><th>طريقة الاسترداد</th><th>الحساب</th><th>مَن سجّل</th></tr></thead>
+              <thead><tr><th>التاريخ</th><th>المرتجع</th><th>الفاتورة الأصلية</th><th>الزبون</th><th>الفرع</th><th>الإجمالي</th><th>طريقة الاسترداد</th><th>الحساب</th><th>السبب</th><th>مَن سجّل</th></tr></thead>
               <tbody id="returnsBody"></tbody>
               <tfoot id="returnsTotalFoot"><tr><td colspan="9" class="mini">—</td></tr></tfoot>
             </table></div>
@@ -1179,15 +1181,23 @@
       </div>
       <form id="saleReturnForm">
         <div class="return-invoice-head" id="returnInvoiceInfo"></div>
+        <div class="return-invoice-head hidden" id="noInvoiceReturnWarn" style="border-color:rgba(217,119,6,.45)">
+          <div class="cell" style="grid-column:1/-1;background:color-mix(in srgb,#d97706 12%,var(--card))"><div class="lbl">⚠ مرتجع بلا فاتورة — يُسجَّل باسمك ويظهر في تقرير المدير</div><div class="val">لكل المستخدمين بلا حدّ مبلغ · السبب إلزامي · يُدخل في إغلاق الخزينة اليومي</div></div>
+        </div>
         <div class="form">
           <div><label>التاريخ</label><input id="saleReturnDate" type="date" required></div>
           <div><label>طريقة الدفع للزبون</label><select id="saleReturnRefundMethod"><option value="cash">دفع نقدي للزبون</option><option value="bank_transfer">تحويل مصرفي</option><option value="card">بطاقة</option><option value="credit_reduction">تخفيض دين الزبون</option><option value="none">بدون استرداد نقدي</option></select></div>
           <div><label>الحساب الذي يخرج منه المبلغ</label><select id="saleReturnAccount"></select></div>
+          <div style="grid-column:1/-1" class="hidden" id="noInvoiceReasonWrap"><label>سبب المرتجع (إلزامي)</label><input id="saleReturnReason" placeholder="مثال: بضاعة بيعت قبل دخول المنظومة"></div>
           <div style="grid-column:1/-1"><label>ملاحظات</label><input id="saleReturnNotes" placeholder="اختياري"></div>
           <div style="grid-column:1/-1" class="mini" id="saleReturnAccountWarn" style="display:none;color:var(--bad)"></div>
         </div>
-        <div class="table-scroll"><table><thead><tr><th>الكود</th><th>الصنف</th><th>المباع</th><th>سعر البيع</th><th>خصم السطر</th><th>كمية المرتجع</th></tr></thead><tbody id="saleReturnItemsBody"></tbody></table></div>
-        <div class="row" style="margin-top:12px"><button class="btn" type="submit">حفظ فاتورة المرتجع</button><span class="mini" id="saleReturnTotal">الإجمالي: 0</span></div>
+        <div class="table-scroll hidden" id="saleReturnItemsTable"><table><thead><tr><th>الكود</th><th>الصنف</th><th>المباع</th><th>سعر البيع</th><th>خصم السطر</th><th>كمية المرتجع</th></tr></thead><tbody id="saleReturnItemsBody"></tbody></table></div>
+        <div class="hidden" id="noInvoiceItemsWrap">
+          <div class="row" style="margin-bottom:8px"><button class="btn secondary" type="button" onclick="openNoInvoiceReturnPicker()"><i class="ti ti-search"></i> اختيار صنف (نافذة المنتجات)</button><span class="mini">السعر يُملأ من سعر البيع الحالي ويمكن تعديله</span></div>
+          <div class="table-scroll"><table><thead><tr><th>الكود</th><th>الصنف</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th><th></th></tr></thead><tbody id="noInvoiceReturnItemsBody"></tbody></table></div>
+        </div>
+        <div class="row" style="margin-top:12px"><button class="btn" type="submit" id="saleReturnSubmitBtn">حفظ فاتورة المرتجع</button><span class="mini" id="saleReturnTotal">الإجمالي: 0</span></div>
       </form>
     </div>
   </div>
@@ -1247,6 +1257,6 @@
 
 
 
-<script src="app.js?v=20260916-1238"></script>
+<script src="app.js?v=20260916-1253"></script>
 </body>
 </html>
