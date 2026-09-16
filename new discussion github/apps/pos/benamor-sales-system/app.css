@@ -466,7 +466,7 @@
        شريط سفلي [8] — الهدف: عشرة صفوف أصناف مرئية على 900px
        ═════════════════════════════════════════════════════════════════ */
     #sales.active{display:flex;flex-direction:column;height:calc(100dvh - 175px);min-height:420px;overflow-y:auto;color-scheme:dark;scroll-behavior:smooth}
-    #sales .cashier-panel{flex:1;min-height:0;display:flex;flex-direction:column;padding:6px 14px;margin-top:0}
+    #sales .cashier-panel{flex:1;min-height:0;display:flex;flex-direction:column;padding:6px 14px;margin-top:0;overflow:visible!important} /* تجاوز overflow:hidden من .section>.panel — السبب الجذري لعدم التمرير */
     #sales .edit-alert{margin:0 0 7px}
 
     /* [2] الشريط المدمج — خلفية زرقاء متدرّجة */
