@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,transferMinQtyDefault:1,marginRedBelow:5,marginOrangeBelow:15,marginYellowBelow:30,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260916-1253';
+const APP_BUILD='b20260916-1319';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -3779,7 +3779,7 @@ function addSaleRowAndFocus(){addSaleRow(); setTimeout(()=>q('saleItemsBody')?.l
 function syncSaleInvoiceNoText(){const el=q('saleInvoiceNo'),t=q('saleInvoiceNoText'); if(!t)return; const v=(el&&el.value||'').trim(); t.textContent=(!v||v==='سيولد تلقائيًا')?'الرقم يُولَّد عند الحفظ':('رقم الفاتورة: '+v);}
 function syncSaleWholesaleChip(){const t=q('saleWholesaleToggle'),c=q('salePriceChip'),l=q('salePriceChipLbl'); const on=!!(t&&t.checked); if(c)c.classList.toggle('active',on); if(l)l.textContent=on?'سعر الجملة':'سعر التجزئة';}
 function toggleSaleWholesale(){const t=q('saleWholesaleToggle'); if(!t)return; t.checked=!t.checked; syncSaleWholesaleChip();}
-function toggleSaleCustomerPanel(){const p=q('saleCustomerPanel'); if(!p)return; const willOpen=p.classList.contains('hidden'); p.classList.toggle('hidden',!willOpen); if(willOpen)setTimeout(()=>q('saleCustomerSearch')?.focus(),40);}
+function toggleSaleCustomerPanel(force){const p=q('saleCustomerPanel'); if(!p)return; const open=force!==undefined?!!force:!p.classList.contains('hidden'); p.classList.toggle('hidden',!open); if(open){try{rebuildSaleCustomerOptions()}catch(e){} setTimeout(()=>q('saleCustomerSearch')?.focus(),40);} }
 function saleDetailsPrefKey(){return 'posSaleDetailsOpen_'+(appUser?.identifier||'user')}
 function toggleSaleDetailsPanel(){const p=q('saleDetailsPanel'); if(!p)return; const open=!p.classList.contains('hidden'); p.classList.toggle('hidden',open); const chip=q('saleDetailsChip'); if(chip)chip.classList.toggle('open',!open); try{localStorage.setItem(saleDetailsPrefKey(),open?'0':'1')}catch(e){}}
 function applySaleLayoutPrefs(){try{const open=localStorage.getItem(saleDetailsPrefKey())==='1'; const p=q('saleDetailsPanel'); if(p)p.classList.toggle('hidden',!open); const chip=q('saleDetailsChip'); if(chip)chip.classList.toggle('open',open);}catch(e){}}

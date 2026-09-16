@@ -59,7 +59,8 @@ test('(تنظيم-٢) البنية الجديدة: topbar+شرائح+لوحتا�
 test('(تنظيم-٣) الأنماط: زر الدفع برتقالي، صفوف مضغوطة، ارتفاع النافذة', ()=>{
   assert.ok(CSS.includes('#sales #salePayBtn{background:#d97706'),'زر الدفع #d97706');
   assert.ok(CSS.includes('font-size:15px;font-weight:900;padding:11px 30px'),'حشوة زر الدفع 11/30 وخط 15/900');
-  assert.ok(CSS.includes('#sales.active{display:flex;flex-direction:column;height:calc(100dvh - 108px)'),'الشاشة بارتفاع النافذة');
+  assert.ok(CSS.includes('#sales.active{display:flex;flex-direction:column;height:calc(100dvh - 175px)'),'الشاشة بارتفاع النافذة (الشريط السفلي المثبَّت محسوب)');
+  assert.ok(CSS.includes('#sales .sale-finish-bar{position:fixed;left:14px;right:14px;bottom:10px'),'الشريط السفلي مثبَّت دائماً ظاهراً');
   assert.ok(CSS.includes('#sales #saleItemsBody td{padding:3px 8px')&&CSS.includes('#sales #saleItemsBody input{min-height:30px'),'صفوف ~40px');
   assert.ok(CSS.includes('grid-template-columns:168px'),'الشريط الجانبي 168px');
   assert.ok(CSS.includes('border:2px solid var(--blue);border-radius:14px;box-shadow:0 0 0 3px rgba(59,130,246,.18)'),'شريط الباركود: إطار أزرق وظل');
@@ -71,11 +72,11 @@ test('(تنظيم-٣) الأنماط: زر الدفع برتقالي، صفوف 
 test('(تنظيم-٤) الميزانية الرأسية: ١٠ صفوف مرئية على نافذة 900px بلا تمرير', ()=>{
   /* الثوابت كما في app.css — الأسوأ: السطر السياقي ظاهر */
   const V=900;                          /* ارتفاع النافذة */
-  const section=V-108;                  /* #sales.active: calc(100dvh - 108px) */
+  const section=V-175;                  /* #sales.active: calc(100dvh - 185px) — الشريط السفلي صار position:fixed خارج التدفق (67+10 فراغ) */
   const panelContent=section-12-4;      /* padding 6×2 + border 2×2 */
-  const topbar=58, shortcuts=24, barcode=34+14+4, context=23, finish=45+20+2; /* الارتفاعات الفعلية */
-  const gaps=5*6;                       /* gap:6px × ٥ فجوات (topbar..finish) */
-  const work=panelContent-(topbar+shortcuts+barcode+context+finish)-gaps;
+  const topbar=58, shortcuts=24, barcode=34+14+4, context=23; /* الشريط السفلي fixed خارج العمود */
+  const gaps=4*6;                       /* gap:6px × ٤ فجوات (الشريط المثبَّت لا يأخذ فجوة) */
+  const work=panelContent-(topbar+shortcuts+barcode+context)-gaps; /* فراغ الشريط المثبَّت محسوب في الثابت 175 نفسه */
   const cardInner=work-4-12;            /* border 2×2 + padding 6×2 */
   const scroll=cardInner-28-34-8-4;     /* رأس البطاقة 28 + شريط الإضافة 34 + فجوتان 8 + هامش 4 */
   const thead=12*1.55+10+1;             /* th: خط 12 + حشوة 5×2 + حد */

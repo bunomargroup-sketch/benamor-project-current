@@ -19,7 +19,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<link rel="stylesheet" href="app.css?v=20260916-1253">
+<link rel="stylesheet" href="app.css?v=20260916-1319">
 </head>
 <body class="auth-locked">
   <header>
@@ -293,7 +293,7 @@
               </div>
               <div class="sale-chips">
                 <div class="schip schip-date" title="تاريخ الفاتورة"><span class="schip-lbl">التاريخ</span><input id="saleDate" type="date" required></div>
-                <div class="schip schip-customer" title="الزبون"><span class="schip-lbl" id="saleCustomerChipName">زبون نقدي</span><button type="button" class="schip-act" onclick="toggleSaleCustomerPanel()">تغيير</button></div>
+                <div class="schip schip-customer" title="الزبون — اضغط لاختيار زبون" style="cursor:pointer" onclick="toggleSaleCustomerPanel(true)"><span class="schip-lbl" id="saleCustomerChipName">زبون نقدي</span><button type="button" class="schip-act" onclick="event.stopPropagation();toggleSaleCustomerPanel(true)">تغيير</button></div>
                 <button type="button" class="schip schip-price" id="salePriceChip" onclick="toggleSaleWholesale()" title="التبديل بين أسعار التجزئة والجملة"><span class="schip-lbl" id="salePriceChipLbl">سعر التجزئة</span></button>
                 <button type="button" class="schip schip-details" id="saleDetailsChip" onclick="toggleSaleDetailsPanel()" title="ملاحظات · طباعة · جملة · هاتف"><span class="schip-lbl">تفاصيل الفاتورة</span><span class="schip-sub">ملاحظات · طباعة · جملة · هاتف</span></button>
                 <div class="schip schip-balance hidden" id="saleCustomerChip" title="رصيد الزبون"><b class="schip-lbl" id="saleCustomerBalance">0.00</b><span class="schip-sub" id="saleCustomerInfo">زبون نقدي / بدون زبون</span></div>
@@ -304,10 +304,11 @@
             <div class="hidden"><label>رقم الفاتورة</label><input id="saleInvoiceNo" class="ltr" readonly tabindex="-1" placeholder="يتم توليده عند الحفظ"></div>
             <!-- لوحة الزبون — تنفتح من شريحة «تغيير» -->
             <div class="sale-customer-panel hidden" id="saleCustomerPanel">
-              <div><label>بحث سريع في الزبائن (اسم أو هاتف)</label><div class="row" style="gap:6px;flex-wrap:nowrap"><input id="saleCustomerSearch" placeholder="اكتب للتصفية…" oninput="filterSaleCustomerOptions()" style="flex:1"><button class="btn secondary" type="button" onclick="clearSaleCustomerSelection()" title="مسح الزبون (زبون نقدي)">✖ مسح الزبون</button></div></div>
+              <div><label>بحث سريع في الزبائن (اسم أو هاتف)</label><div class="row" style="gap:6px;flex-wrap:nowrap"><input id="saleCustomerSearch" placeholder="اكتب للتصفية…" oninput="filterSaleCustomerOptions()" onkeydown="if(event.key==='Enter'){event.preventDefault();event.stopPropagation();}" style="flex:1"><button class="btn secondary" type="button" onclick="clearSaleCustomerSelection()" title="مسح الزبون (زبون نقدي)">✖ مسح الزبون</button></div></div>
               <div><label>زبون موجود</label><select id="saleCustomer" onchange="renderSaleCustomerInfo();updateSaleTotal()"></select></div>
               <div><label>أو اسم زبون جديد</label><input id="saleNewCustomerName" placeholder="مطلوب إذا يوجد دين"></div>
               <div><label>هاتف الزبون</label><input id="saleNewCustomerPhone" class="ltr" placeholder="اختياري"></div>
+              <div class="row" style="align-items:end"><button type="button" class="btn secondary" onclick="toggleSaleCustomerPanel(false)">✖ إخفاء اللوحة</button><span class="mini">Enter في البحث لا يرسل الفاتورة — اختر من القائمة</span></div>
               <label class="hidden"><input id="saleWholesaleToggle" type="checkbox" style="width:auto" title="عند التفعيل تُستعمل أسعار الجملة"> 🔖 سعر الجملة</label>
             </div>
             <!-- لوحة تفاصيل الفاتورة — تنفتح من الشريحة المتقطّعة وتُحفظ حالتها لكل مستخدم -->
@@ -1257,6 +1258,6 @@
 
 
 
-<script src="app.js?v=20260916-1253"></script>
+<script src="app.js?v=20260916-1319"></script>
 </body>
 </html>

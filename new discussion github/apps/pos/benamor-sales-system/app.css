@@ -465,7 +465,7 @@
        سياق [5] · شريط جانبي 168px [6] · بطاقة أصناق flex-grow [7] ·
        شريط سفلي [8] — الهدف: عشرة صفوف أصناف مرئية على 900px
        ═════════════════════════════════════════════════════════════════ */
-    #sales.active{display:flex;flex-direction:column;height:calc(100dvh - 108px);min-height:540px;overflow:hidden;color-scheme:dark}
+    #sales.active{display:flex;flex-direction:column;height:calc(100dvh - 175px);min-height:540px;overflow:hidden;color-scheme:dark}
     #sales .cashier-panel{flex:1;min-height:0;display:flex;flex-direction:column;padding:6px 14px;margin-top:0}
     #sales .edit-alert{margin:0 0 7px}
 
@@ -523,7 +523,9 @@
     #sales .add-row-strip{margin-top:4px;padding:6px;font-size:13px;flex-shrink:0}
 
     /* [8] الشريط السفلي — صف واحد بلا فراغ في الوسط */
-    #sales .sale-finish-bar{position:static;flex-shrink:0;background:linear-gradient(120deg,#0f172a,#1e3a8a);border:1px solid #1d4ed8;border-radius:14px;padding:10px 14px;box-shadow:0 -6px 22px rgba(2,6,23,.28);display:flex;align-items:center;gap:10px;flex-wrap:nowrap;min-height:62px}
+    #sales .sale-finish-bar{position:fixed;left:14px;right:14px;bottom:10px;z-index:30;flex-shrink:0;background:linear-gradient(120deg,#0f172a,#1e3a8a);border:1px solid #1d4ed8;border-radius:14px;padding:10px 14px;box-shadow:0 -6px 26px rgba(2,6,23,.5);display:flex;align-items:center;gap:10px;flex-wrap:nowrap;min-height:62px}
+    /* القائمة الجانبية موسعة؟ أزح الحافة كي لا يغطيها الشريط */
+    @media(min-width:901px){body:not(.nav-collapsed) #sales .sale-finish-bar{right:292px}}
     #sales .sale-finish-bar .finish-total{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
     #sales .sale-finish-bar .finish-total>span:first-child{font-size:12.5px}
     #sales .sale-finish-bar .finish-total b{font-size:23px}
@@ -538,6 +540,7 @@
     /* التجاوب: تابلت وهاتف — بلا تمرير أفقي ولا عناصر مقصوصة */
     @media(max-width:1100px){
       #sales.active{height:auto;min-height:0;overflow:visible}
+      #sales #saleForm{padding-bottom:96px}
       #sales .pos-work-area{grid-template-columns:1fr}
       #sales .pos-action-rail{display:grid;grid-template-columns:repeat(2,1fr)}
       #sales .rail-title{grid-column:1/-1}
