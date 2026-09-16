@@ -553,3 +553,17 @@
       #sales .sale-finish-bar .finish-actions{flex-wrap:wrap}
       #sales #salePayBtn{padding:10px 18px}
     }
+
+    /* ═══ (المهمة ١) تلوين أسطر البيع حسب الهامش — الاستثناء لا القاعدة ═══
+       93% من المنتجات فوق 30% ⇒ فوق 30% بلا لون. خلفية خافتة عبر color-mix
+       مع لون البطاقة نفسه (يتكيّف مع الوضعين الفاتح والداكن) + شريط 4px
+       في بداية السطر. النص يبقى مقروءاً — لا تعبئة مشبعة. */
+    #sales #saleItemsBody tr.margin-red td{background:color-mix(in srgb,#ef4444 13%,var(--card))}
+    #sales #saleItemsBody tr.margin-red td:first-child{border-inline-start:4px solid #ef4444}
+    #sales #saleItemsBody tr.margin-red:hover td{background:color-mix(in srgb,#ef4444 17%,var(--card))}
+    #sales #saleItemsBody tr.margin-orange td{background:color-mix(in srgb,#f97316 13%,var(--card))}
+    #sales #saleItemsBody tr.margin-orange td:first-child{border-inline-start:4px solid #f97316}
+    #sales #saleItemsBody tr.margin-orange:hover td{background:color-mix(in srgb,#f97316 17%,var(--card))}
+    #sales #saleItemsBody tr.margin-yellow td{background:color-mix(in srgb,#eab308 12%,var(--card))}
+    #sales #saleItemsBody tr.margin-yellow td:first-child{border-inline-start:4px solid #eab308}
+    #sales #saleItemsBody tr.margin-yellow:hover td{background:color-mix(in srgb,#eab308 16%,var(--card))}

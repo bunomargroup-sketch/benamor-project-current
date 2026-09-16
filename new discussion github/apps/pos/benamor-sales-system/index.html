@@ -19,7 +19,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<link rel="stylesheet" href="app.css?v=20260916-1116">
+<link rel="stylesheet" href="app.css?v=20260916-1230">
 </head>
 <body class="auth-locked">
   <header>
@@ -963,6 +963,10 @@
             <div><label>العملة</label><input id="settingsCurrency"></div>
             <div><label>حد المخزون المنخفض</label><input id="settingsLowStock" type="number" step="1" min="0"></div>
             <div><label>الحد الافتراضي لاقتراحات التحويل</label><input id="settingsTransferMinQty" type="number" step="1" min="0"></div>
+            <div><label>عتبة الأحمر: هامش أقل من (%)</label><input id="settingsMarginRedBelow" type="number" step="0.5" min="0"></div>
+            <div><label>عتبة البرتقالي: هامش أقل من (%)</label><input id="settingsMarginOrangeBelow" type="number" step="0.5" min="0"></div>
+            <div><label>عتبة الأصفر: هامش أقل من (%)</label><input id="settingsMarginYellowBelow" type="number" step="0.5" min="0"></div>
+            <div style="grid-column:1/-1" class="mini">ألوان أسطر البيع: النسبة محسوبة على التكلفة: (البيع − الشراء) ÷ الشراء — اللون على السعر الفعلي للسطر بعد الخصم، وتكلفة مجهولة ⇒ بلا لون.</div>
             <button class="btn" type="submit">حفظ الإعدادات</button>
             <button class="btn secondary" type="button" onclick="resetLocalSettings()">استرجاع الافتراضي</button>
           </form>
@@ -1243,6 +1247,6 @@
 
 
 
-<script src="app.js?v=20260916-1116"></script>
+<script src="app.js?v=20260916-1230"></script>
 </body>
 </html>

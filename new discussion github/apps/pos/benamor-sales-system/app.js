@@ -6,8 +6,8 @@ function toggleTheme(){try{var cur=document.documentElement.getAttribute('data-t
 document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
-const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,transferMinQtyDefault:1,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260916-1116';
+const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,transferMinQtyDefault:1,marginRedBelow:5,marginOrangeBelow:15,marginYellowBelow:30,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
+const APP_BUILD='b20260916-1230';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -2996,11 +2996,25 @@ function maybeRecordStockRequest(p){
   })();
 }
 
+/* ═══ (المهمة ١) تلوين سطر الصنف حسب الهامش — الاستثناء لا القاعدة ═══
+   الهامش على السعر الفعلي للسطر (بعد خصم السطر) لا سعر الكتالوج:
+   (سعر السطر بعد الخصم − التكلفة) ÷ التكلفة × 100.
+   تكلفة = 0 ⇒ بلا لون إطلاقاً (لا نعرف ≠ ربح أو خسارة).
+   العتبات من APP_CONFIG (الإعدادات) — بلا إعادة تحميل. */
+function applyMarginRowColor(tr,pct){
+  if(!tr||!tr.classList) return;
+  tr.classList.remove('margin-red','margin-orange','margin-yellow');
+  if(pct==null||!isFinite(pct)) return;
+  if(pct<Number(APP_CONFIG.marginRedBelow??5)) tr.classList.add('margin-red');
+  else if(pct<Number(APP_CONFIG.marginOrangeBelow??15)) tr.classList.add('margin-orange');
+  else if(pct<Number(APP_CONFIG.marginYellowBelow??30)) tr.classList.add('margin-yellow');
+}
 function updateSaleTotal(){
   let subtotal=0;
   [...q('saleItemsBody').querySelectorAll('tr')].forEach(tr=>{
-    const qtyRaw=Math.abs(Number(tr.querySelector('.si-qty').value||0)); const sign=tr.querySelector('.si-kind')?.value==='return'?-1:1; const qty=sign*qtyRaw; const price=moneyVal(tr.querySelector('.si-price').value); const code=(tr.querySelector('.si-code')?.value||'').split('|')[0].trim(); const baseAbs=qtyRaw*price; const line=sign*Math.max(0,baseAbs-calcLineDiscount(tr.querySelector('.si-discount')?.value||'',baseAbs)); subtotal+=line; tr.classList.toggle('return-line',sign<0);
+    const qtyRaw=Math.abs(Number(tr.querySelector('.si-qty').value||0)); const sign=tr.querySelector('.si-kind')?.value==='return'?-1:1; const qty=sign*qtyRaw; const price=moneyVal(tr.querySelector('.si-price').value); const code=(tr.querySelector('.si-code')?.value||'').split('|')[0].trim(); const baseAbs=qtyRaw*price; const lineDisc=calcLineDiscount(tr.querySelector('.si-discount')?.value||'',baseAbs); const line=sign*Math.max(0,baseAbs-lineDisc); subtotal+=line; tr.classList.toggle('return-line',sign<0);
     const cost=productCost(code), mv=(price-cost)*qty, mp=cost?((price-cost)/cost*100):0; if(tr.querySelector('.si-margin')) tr.querySelector('.si-margin').innerHTML=cost?`<b class="${mv>=0?'stock-positive':'stock-negative'}">${money(mv)}</b>`:'<span class="muted">لا تكلفة</span>'; if(tr.querySelector('.si-margin-pct')) tr.querySelector('.si-margin-pct').innerHTML=cost?`<span class="${mv>=0?'stock-positive':'stock-negative'}">${money(mp)}%</span>`:'<span class="muted">—</span>';
+    applyMarginRowColor(tr, cost>0?(((qtyRaw>0?(baseAbs-lineDisc)/qtyRaw:price)-cost)/cost*100):null); /* (المهمة ١) اللون على السعر الفعلي بعد الخصم — تكلفة مجهولة ⇒ بلا لون */
     tr.querySelector('.si-line').innerHTML=`<b>${money(line)}</b>`;
   });
   const discount=moneyVal(q('saleDiscount').value); const total=subtotal-discount;
@@ -3916,7 +3930,7 @@ function editFinanceAccount(id){
   q('financeAccountCancelBtn')?.classList.remove('hidden');
   q('financeAccountName').focus();
 }
-function fillSettingsForm(){if(!q('settingsBusinessName'))return; q('settingsBusinessName').value=APP_CONFIG.businessName; q('settingsTagline').value=APP_CONFIG.tagline; q('settingsCurrency').value=APP_CONFIG.currency; q('settingsLowStock').value=APP_CONFIG.lowStockThreshold; if(q('settingsTransferMinQty')) q('settingsTransferMinQty').value=APP_CONFIG.transferMinQtyDefault??1;}
+function fillSettingsForm(){if(!q('settingsBusinessName'))return; q('settingsBusinessName').value=APP_CONFIG.businessName; q('settingsTagline').value=APP_CONFIG.tagline; q('settingsCurrency').value=APP_CONFIG.currency; q('settingsLowStock').value=APP_CONFIG.lowStockThreshold; if(q('settingsTransferMinQty')) q('settingsTransferMinQty').value=APP_CONFIG.transferMinQtyDefault??1; if(q('settingsMarginRedBelow')) q('settingsMarginRedBelow').value=APP_CONFIG.marginRedBelow??5; if(q('settingsMarginOrangeBelow')) q('settingsMarginOrangeBelow').value=APP_CONFIG.marginOrangeBelow??15; if(q('settingsMarginYellowBelow')) q('settingsMarginYellowBelow').value=APP_CONFIG.marginYellowBelow??30;}
 function resetLocalSettings(){localStorage.removeItem('posAppConfig'); location.reload()}
 
 /* ملء حساب الاسترداد: حسب الطريقة + فرع الفاتورة الأصلية (لا فرع المستخدم) */
@@ -4128,9 +4142,9 @@ q('salaryPaymentForm')?.addEventListener('submit',async e=>{e.preventDefault();i
 
 q('settingsForm')?.addEventListener('submit',e=>{
   e.preventDefault();
-  Object.assign(APP_CONFIG,{businessName:q('settingsBusinessName').value.trim()||APP_CONFIG.businessName,tagline:q('settingsTagline').value.trim()||APP_CONFIG.tagline,currency:q('settingsCurrency').value.trim()||APP_CONFIG.currency,lowStockThreshold:Number(q('settingsLowStock').value||0),transferMinQtyDefault:Math.max(0,Number(q('settingsTransferMinQty')?.value||1))});
-  localStorage.setItem('posAppConfig',JSON.stringify({businessName:APP_CONFIG.businessName,tagline:APP_CONFIG.tagline,currency:APP_CONFIG.currency,lowStockThreshold:APP_CONFIG.lowStockThreshold,transferMinQtyDefault:APP_CONFIG.transferMinQtyDefault,customBrands:APP_CONFIG.customBrands||[],customModels:APP_CONFIG.customModels||[],customColors:APP_CONFIG.customColors||[]}));
-  initBranding(); renderAll(); toast('تم حفظ الإعدادات');
+  Object.assign(APP_CONFIG,{businessName:q('settingsBusinessName').value.trim()||APP_CONFIG.businessName,tagline:q('settingsTagline').value.trim()||APP_CONFIG.tagline,currency:q('settingsCurrency').value.trim()||APP_CONFIG.currency,lowStockThreshold:Number(q('settingsLowStock').value||0),transferMinQtyDefault:Math.max(0,Number(q('settingsTransferMinQty')?.value||1)),marginRedBelow:Math.max(0,Number(q('settingsMarginRedBelow')?.value??5)),marginOrangeBelow:Math.max(0,Number(q('settingsMarginOrangeBelow')?.value??15)),marginYellowBelow:Math.max(0,Number(q('settingsMarginYellowBelow')?.value??30))});
+  localStorage.setItem('posAppConfig',JSON.stringify({businessName:APP_CONFIG.businessName,tagline:APP_CONFIG.tagline,currency:APP_CONFIG.currency,lowStockThreshold:APP_CONFIG.lowStockThreshold,transferMinQtyDefault:APP_CONFIG.transferMinQtyDefault,marginRedBelow:APP_CONFIG.marginRedBelow,marginOrangeBelow:APP_CONFIG.marginOrangeBelow,marginYellowBelow:APP_CONFIG.marginYellowBelow,customBrands:APP_CONFIG.customBrands||[],customModels:APP_CONFIG.customModels||[],customColors:APP_CONFIG.customColors||[]}));
+  initBranding(); renderAll(); if(q('saleItemsBody')) updateSaleTotal(); /* الألوان تتبع العتبات فوراً بلا إعادة تحميل */ toast('تم حفظ الإعدادات');
 });
 
 q('productOptionForm')?.addEventListener('submit',e=>{
@@ -4492,7 +4506,7 @@ function addProductOption(type,value){
   const arr=APP_CONFIG[key]||[];
   if(!arr.some(x=>String(x).toLowerCase()===String(value).toLowerCase())) arr.push(value);
   APP_CONFIG[key]=arr.sort((a,b)=>String(a).localeCompare(String(b),'ar'));
-  localStorage.setItem('posAppConfig',JSON.stringify({businessName:APP_CONFIG.businessName,tagline:APP_CONFIG.tagline,currency:APP_CONFIG.currency,lowStockThreshold:APP_CONFIG.lowStockThreshold,transferMinQtyDefault:APP_CONFIG.transferMinQtyDefault,customBrands:APP_CONFIG.customBrands||[],customModels:APP_CONFIG.customModels||[],customColors:APP_CONFIG.customColors||[]}));
+  localStorage.setItem('posAppConfig',JSON.stringify({businessName:APP_CONFIG.businessName,tagline:APP_CONFIG.tagline,currency:APP_CONFIG.currency,lowStockThreshold:APP_CONFIG.lowStockThreshold,transferMinQtyDefault:APP_CONFIG.transferMinQtyDefault,marginRedBelow:APP_CONFIG.marginRedBelow,marginOrangeBelow:APP_CONFIG.marginOrangeBelow,marginYellowBelow:APP_CONFIG.marginYellowBelow,customBrands:APP_CONFIG.customBrands||[],customModels:APP_CONFIG.customModels||[],customColors:APP_CONFIG.customColors||[]}));
   renderProductDatalist(); renderProductOptionSettings();
 }
 
