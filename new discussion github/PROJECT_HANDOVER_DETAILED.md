@@ -6,6 +6,34 @@ This handover is for starting a new AI-agent conversation without losing project
 
 ---
 
+## ⭐ CURRENT STATE — 2026-09-16 (read this first; the sections below are from 2026-07-27)
+
+**Deployment**: follow `DEPLOYMENT-RUNBOOK.md` (Arabic, one safe order: pricechecker files → db push → POS files). **Never apply migration 0053 before the new pricechecker build is live on the shop tablet** (it revokes the anon stock reads the old build depends on).
+
+**Test infrastructure (biggest change since July)**: `npm test` → 160 tests in `tests/` (node:test + @electric-sql/pglite WASM Postgres for server/migration tests; VM harness for client tests). Migrations 0001..0055 build a full local DB; RLS tested via `set role`. Running the suite re-stamps builds via `scripts/bump-build.js` (now also stamps the pricechecker single-file app: PC_BUILD + sw CACHE).
+
+**Migrations 0049–0055 (all single-statement DO blocks, SQL-Editor-safe, idempotent)**:
+- 0049 suppliers dedup v2 (prod expectation 175→90 suppliers, 4445 products-with-supplier unchanged)
+- 0050 location_category_rules (471 rows expected on prod) + admin screen in locations tab
+- 0051 pos_stock_requests + pos_record_stock_request RPC (silent cashier demand signal, hit_count)
+- 0052 pos_suggestion_dismissals (30-day dismiss)
+- 0053 anon lockdown (revoke all anon on pos_*, legacy pricechecker2 tables incl. app_users code_hash column grant, login_app_user + next_pos_invoice_number; web_orders/web_order_items keep INSERT, web_products keeps column-level SELECT of the 15 public catalog columns — cost never exposed; in-transaction guard)
+- 0054 created_by backfill from pos_audit_log (single distinct user only; pre-measurement query in file header)
+- 0055 return-without-invoice (sale_id nullable + reason CHECK + price_edited; post_sale_return_transaction no-invoice branch for all users — owner decision, no limits/approval; UI button in both salesList panels, mandatory reason, explicit account select; audit log + dashboard line + returns-list badge/reason column)
+
+**Transfer suggestions feature (complete: Tasks 1–4)**: 3-list suggestions screen in transfers tab + «جرد مطلوب» sub-tab (negative stock sorted most-negative-first, CSV export w/ BOM, shelf print) + clickable negatives banner. `supabase/verify-0049-0052.sql` = one-query structure check (run after db push).
+
+**Pricechecker (apps/pricechecker/index.html)**: authenticated catalog reads — all REST calls via fetchWithAuthRetry (Bearer + 401→refresh→retry once), auth-gated boot (zero data calls without session), offline cache display without update, visible build fingerprint. Single file + sw.js.
+
+**POS sale screen**: reorganized per consultant spec (merged topbar with chips: date/customer/price/details, shortcuts line, prominent barcode strip, conditional stock-context strip, rail 9→6 buttons — price-edit & margins moved to row right-click menu, viewport-height column layout ≥10 item rows at 900px, fixed orange pay bar #d97706 always visible). Margin row coloring (red <5% incl. negative, orange 5–15, yellow 15–30, none ≥30; on effective line price after discount; thresholds 5/15/30 in Settings/APP_CONFIG). Customer search fixes: whole chip opens panel, Enter guarded, rebuild-on-open.
+
+**Build stamps**: POS + pricechecker both at `b20260916-1339` (stamped by test runs; fingerprint visible in POS Settings and pricechecker top bar/login card). Upload-ready copies in `updated-html-files/benamor-sales-system/` (4 files + all supabase-pos-*.sql mirrors incl. anon-lockdown, created-by-backfill, return-without-invoice) and `updated-html-files/pricechecker/` (2 files).
+
+**Awaiting the owner (blocks everything remaining)**: device verification of pricechecker auth (before 0053 push), db push of 0049–0055 + verification numbers (90 suppliers / **471 rules — exact** / anon script results), device verification of the sale-screen fixes and جرد مطلوب counts (~222 rows / 215 products).
+
+
+---
+
 ## 1. Main Live URLs
 
 ### Price Checker / Seller app
