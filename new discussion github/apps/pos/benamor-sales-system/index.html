@@ -19,7 +19,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<link rel="stylesheet" href="app.css?v=20260916-1602">
+<link rel="stylesheet" href="app.css?v=20260916-1607">
 </head>
 <body class="auth-locked">
   <header>
@@ -160,8 +160,57 @@
 
 
       <section id="products" class="section">
-        <div class="panel">
-          <h2>إضافة / تعديل منتج</h2>
+        <div class="panel" style="padding:10px 14px">
+          <!-- [1] شريط العنوان -->
+          <div class="tools" style="margin:0 0 6px">
+            <h2 style="margin:0" title="البيانات مستوردة من ملفك: الكود، الصنف، الماركة، الموديل، المورد، التصنيف، سعر الشراء، سعر البيع، والمخزون حسب المكان">قاعدة المنتجات</h2>
+            <span class="mini" id="productsInfo" style="font-weight:700"></span>
+            <input id="productSearch" placeholder="🔍 ابحث... مثال: خلاط كروم أقل من 200" oninput="debounceRenderProducts()" style="width:100%;max-width:500px;font-size:17px;font-weight:700;padding:13px 18px;border:2.5px solid var(--blue);border-radius:14px;background:var(--accent-soft)">
+            <button class="btn" type="button" onclick="openProductModal()">+ منتج جديد</button>
+          </div>
+          <div id="smartFilterInfo" style="display:none;margin:4px 0 6px"></div>
+          <!-- [2] شريط الفلاتر — صفّ واحد -->
+          <div class="row" style="margin-bottom:6px;gap:6px">
+            <select id="productCategoryFilter" onchange="renderProducts()"></select>
+            <select id="productBrandFilter" onchange="renderProducts()"></select>
+            <select id="productColorFilter" onchange="renderProducts()"></select>
+            <select id="productSupplierFilter" onchange="renderProducts()"></select>
+            <button class="btn secondary" type="button" onclick="clearProductFilters()">مسح الفلاتر</button>
+            <button class="btn secondary" onclick="loadAll()">تحديث</button>
+          </div>
+          <!-- [3] شريط الإجراءات — يظهر عند تحديد صف -->
+          <div class="row sticky-actions hidden" id="productActionBar" style="margin-bottom:6px;gap:6px;padding:6px 10px;border-radius:10px;background:color-mix(in srgb,var(--blue) 10%,transparent)">
+            <b class="mini" id="selectedProductInfo"></b>
+            <button class="btn secondary" type="button" onclick="viewSelectedProduct()">مشاهدة</button>
+            <button class="btn secondary" type="button" onclick="editSelectedProduct()">تعديل</button>
+            <button class="btn secondary" type="button" onclick="duplicateSelectedProduct()">نسخ</button>
+            <button class="btn secondary" type="button" onclick="openSelectedProductMovements()">الحركات</button>
+          </div>
+          <!-- [4]+[5] التصنيفات + الجدول -->
+          <div class="product-workbench">
+            <aside class="product-sidebar">
+              <h3>التصنيفات</h3>
+              <div class="category-node active" onclick="selectProductCategory('')"><span>كل الأصناف</span><span class="count" id="allProductsCountSide">0</span></div>
+              <div id="productCategoryTree"></div>
+            </aside>
+            <div class="product-table-wrap" oncontextmenu="if(event.target.closest('thead')){event.preventDefault();showProductColMenu(event)}">
+              <div class="table-scroll product-table-scroll">
+                <table>
+                  <tbody id="productsBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- نافذة إضافة/تعديل منتج — كل الحقول والمعرفات كما هي -->
+      <div class="modal" id="productModal">
+        <div class="modal-card" style="max-width:720px">
+          <div class="modal-head">
+            <div><h2 id="productModalTitle" style="margin:0">إضافة / تعديل منتج</h2><div class="mini">اكتب كوداً موجوداً لتعديل بياناته</div></div>
+            <button class="btn secondary" type="button" onclick="closeProductModal()">إغلاق</button>
+          </div>
           <form class="form" id="productForm">
             <div><label>كود المنتج</label><input id="productCode" class="ltr" required placeholder="مثال: WS10880"></div>
             <div><label>اسم المنتج</label><input id="productName" required placeholder="اسم الصنف"></div>
@@ -175,7 +224,7 @@
             <div><label>سعر الشراء</label><input id="productPurchasePrice" type="text" inputmode="decimal" value="0"></div>
             <div><label>سعر البيع القطاعي</label><input id="productRetailPrice" type="text" inputmode="decimal" value="0"></div>
             <div><label>سعر الجملة</label><input id="productWholesalePrice" type="text" inputmode="decimal" value="0"></div>
-            <div class="row"><button class="btn" id="productSubmitBtn" type="submit">حفظ المنتج</button><button class="btn secondary" type="button" onclick="duplicateSelectedProduct()">نسخ المنتج</button><button class="btn secondary" type="button" onclick="resetProductForm()">تفريغ</button></div>
+            <div class="row" style="grid-column:1/-1"><button class="btn" id="productSubmitBtn" type="submit">حفظ المنتج</button><button class="btn secondary" type="button" onclick="resetProductForm()">تفريغ</button></div>
           </form>
           <p class="mini">يمكنك إضافة التصنيف عند إنشاء المنتج. إذا كتبت كود منتج موجود سيتم تعديل بياناته.</p>
           <div id="productComponentsSection" class="hidden" style="margin-top:14px;border-top:2px solid var(--border);padding-top:12px">
@@ -189,54 +238,7 @@
             <div id="productComponentsBody"></div>
           </div>
         </div>
-        <div class="panel">
-          <div class="tools">
-            <h2>قاعدة المنتجات</h2>
-            <input id="productSearch" placeholder="🔍 ابحث... مثال: خلاط كروم أقل من 200" oninput="debounceRenderProducts()" style="width:100%;max-width:500px;font-size:17px;font-weight:700;padding:13px 18px;border:2.5px solid var(--blue);border-radius:14px;background:var(--accent-soft);margin-bottom:10px">
-            <div id="smartFilterInfo" style="display:none;margin:4px 0 8px 0"></div>
-            <div class="row">
-              
-              <select id="productCategoryFilter" onchange="renderProducts()" style="min-width:170px"></select>
-              <select id="productBrandFilter" onchange="renderProducts()" style="min-width:150px"></select>
-              <select id="productColorFilter" onchange="renderProducts()" style="min-width:140px"></select>
-              <select id="productSupplierFilter" onchange="renderProducts()" style="min-width:180px"></select>
-              <button class="btn secondary" onclick="loadAll()">تحديث</button>
-            </div>
-            <div class="row sticky-actions" style="margin-top:10px">
-              <button class="btn secondary" type="button" onclick="viewSelectedProduct()">مشاهدة المنتج</button>
-              <button class="btn secondary" type="button" onclick="editSelectedProduct()">تعديل المنتج المحدد</button>
-              <button class="btn secondary" type="button" onclick="openSelectedProductMovements()">حركات المنتج المحدد</button>
-              <span class="mini" id="selectedProductInfo">اختر منتجًا من الجدول أولاً</span>
-              <span class="mini ctx-hint"><i class="ti ti-mouse"></i> اضغط بزر الفأرة الأيمن على أي صف لعرض قائمة الإجراءات</span>
-            </div>
-          </div>
-          <p class="muted">هذه البيانات مستوردة من ملفك: الكود، الصنف، الماركة، الموديل، المورد، التصنيف، سعر الشراء، سعر البيع، والمخزون حسب المكان.</p>
-          <div class="product-workbench">
-            <aside class="product-sidebar">
-              <h3>التصنيفات</h3>
-              <div class="category-node active" onclick="selectProductCategory('')"><span>كل الأصناف</span><span class="count" id="allProductsCountSide">0</span></div>
-              <div id="productCategoryTree"></div>
-            </aside>
-            <div class="product-table-wrap" oncontextmenu="if(event.target.closest('thead')){event.preventDefault();showProductColMenu(event)}">
-              <div class="table-scroll">
-                <table>
-                  
-                  <tbody id="productsBody"></tbody>
-                </table>
-              </div>
-              <div class="product-bottom-bar">
-                <b>بحث</b>
-                <input class="grow" id="productBottomSearch" placeholder="بحث سريع داخل المنتجات..." oninput="q('productSearch').value=this.value;debounceRenderProducts()">
-                <button class="btn secondary" type="button" onclick="viewSelectedProduct()">مشاهدة</button>
-                <button class="btn secondary" type="button" onclick="editSelectedProduct()">تعديل</button><button class="btn secondary" type="button" onclick="duplicateSelectedProduct()">نسخ</button>
-                <button class="btn secondary" type="button" onclick="openSelectedProductMovements()">الحركات</button>
-              </div>
-            </div>
-          </div>
-          <div class="mini" id="productsInfo" style="margin-top:10px"></div>
-        </div>
-      </section>
-
+      </div>
       <section id="suppliers" class="section">
         <div class="panel">
           <h2>إضافة مورد</h2>
@@ -574,29 +576,38 @@
       </section>
 
       <section id="stock" class="section">
-        <div class="panel">
-          <div class="tools">
-            <h2>المخزون الحالي</h2>
-            <div class="row">
-              <select id="stockLocationFilter" onchange="renderStock()" style="min-width:210px"></select>
-              <select id="stockCategoryFilter" onchange="renderStock()" style="min-width:160px"><option value="">كل التصنيفات</option></select>
-              <select id="stockBrandFilter" onchange="renderStock()" style="min-width:140px"><option value="">كل الماركات</option></select>
-              <select id="stockSupplierFilter" onchange="renderStock()" style="min-width:160px"><option value="">كل الموردين</option></select>
-              <select id="stockStatusFilter" onchange="renderStock()" style="min-width:150px"><option value="">كل الحالات</option><option value="positive">متوفر</option><option value="zero">صفر</option><option value="negative">سالب</option><option value="low">تحت حد الطلب</option></select>
-              <input id="stockSearch" placeholder="بحث بالكود أو الاسم أو الباركود..." oninput="renderStock()" style="max-width:260px">
-              <button class="btn secondary" onclick="loadAll()">تحديث</button>
-            </div>
+        <div class="panel" style="padding:10px 14px">
+          <!-- [1] شريط العنوان -->
+          <div class="tools" style="margin:0 0 6px">
+            <h2 style="margin:0">المخزون الحالي</h2>
+            <input id="stockSearch" placeholder="بحث بالكود أو الاسم أو الباركود..." oninput="renderStock()" style="max-width:260px">
+            <button class="btn secondary" onclick="loadAll()">تحديث</button>
           </div>
-          <div class="grid cards stock-summary-grid">
-            <div class="card"><h3>قيمة المخزون</h3><div class="num" id="stockValueTotal">0.00</div></div>
-            <div class="card"><h3>إجمالي الكمية</h3><div class="num" id="stockQtyTotal">0.00</div></div>
-            <div class="card"><h3>عدد الأصناف</h3><div class="num" id="stockItemsCount">0</div></div>
-            <div class="card"><h3>أصناف تحت الطلب</h3><div class="num" id="stockLowCount">0</div></div>
+          <!-- [2] شريط الفلاتر — صفّ واحد -->
+          <div class="row" style="margin-bottom:6px;gap:6px">
+            <select id="stockLocationFilter" onchange="renderStock()"></select>
+            <select id="stockCategoryFilter" onchange="renderStock()"><option value="">كل التصنيفات</option></select>
+            <select id="stockBrandFilter" onchange="renderStock()"><option value="">كل الماركات</option></select>
+            <select id="stockSupplierFilter" onchange="renderStock()"><option value="">كل الموردين</option></select>
+            <select id="stockStatusFilter" onchange="renderStock()"><option value="">كل الحالات</option><option value="positive">متوفر</option><option value="zero">صفر</option><option value="negative">سالب</option><option value="low">تحت حد الطلب</option></select>
+            <button class="btn secondary" type="button" onclick="clearStockFilters()">مسح الفلاتر</button>
           </div>
-          <div class="table-scroll"><table><thead><tr><th>المكان</th><th>كود المنتج</th><th>اسم المنتج</th><th>التصنيف</th><th>المورد</th><th>الكمية</th><th>تكلفة الوحدة</th><th>قيمة المخزون</th><th>آخر تحديث</th></tr></thead><tbody id="stockBody"></tbody></table></div>
+          <!-- [3] بطاقات المؤشّرات — نحيفة سطر واحد -->
+          <div class="grid stock-metrics">
+            <div class="stock-metric"><span class="lbl">قيمة المخزون</span><b id="stockValueTotal">0.00</b></div>
+            <div class="stock-metric"><span class="lbl">إجمالي الكمية</span><b id="stockQtyTotal">0.00</b></div>
+            <div class="stock-metric"><span class="lbl">عدد الأصناف</span><b id="stockItemsCount">0</b></div>
+            <div class="stock-metric clickable" id="stockLowCountCard" onclick="filterStockLow()" title="انقر لتصفية الجدول على الأصناف تحت حد الطلب"><span class="lbl">تحت الطلب ⚠</span><b id="stockLowCount">0</b></div>
+          </div>
+          <!-- [4] الجدول -->
+          <div class="table-scroll stock-table-scroll" style="margin-top:8px">
+            <table>
+              <thead><tr><th>المكان</th><th>كود المنتج</th><th>اسم المنتج</th><th>التصنيف</th><th>المورد</th><th>الكمية</th><th>تكلفة الوحدة</th><th>قيمة المخزون</th><th>آخر تحديث</th></tr></thead>
+              <tbody id="stockBody"></tbody>
+            </table>
+          </div>
         </div>
       </section>
-
 
       <section id="transfers" class="section">
         <div class="tools" style="margin-bottom:10px"><div class="row" style="gap:6px">
@@ -1274,6 +1285,6 @@
 
 
 
-<script src="app.js?v=20260916-1602"></script>
+<script src="app.js?v=20260916-1607"></script>
 </body>
 </html>

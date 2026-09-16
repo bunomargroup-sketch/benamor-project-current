@@ -572,3 +572,30 @@
     #sales #saleItemsBody tr.margin-yellow td{background:color-mix(in srgb,#eab308 12%,var(--card))}
     #sales #saleItemsBody tr.margin-yellow td:first-child{border-inline-start:4px solid #eab308}
     #sales #saleItemsBody tr.margin-yellow:hover td{background:color-mix(in srgb,#eab308 16%,var(--card))}
+
+    /* ═══ (المهمة ٢) قاعدة المنتجات — عمود ثابت بارتفاع النافذة ═══ */
+    #products.active > .panel{display:flex;flex-direction:column;height:calc(100dvh - 130px);min-height:400px;overflow-y:auto;overflow:visible!important}
+    #products .product-workbench{flex:1;min-height:200px;display:grid;grid-template-columns:240px minmax(0,1fr);gap:10px;align-items:start}
+    #products .product-table-scroll{max-height:none;flex:1;min-height:0;overflow:auto}
+    #products .product-table-scroll thead th{position:sticky;top:0;z-index:4;background:var(--table-head);box-shadow:0 1px 0 var(--border)}
+    #products .product-sidebar{max-height:calc(100dvh - 320px);overflow-y:auto}
+    #products .tools{margin:0 0 6px;flex-wrap:nowrap;align-items:center;gap:10px}
+    #products .tools h2{white-space:nowrap}
+    #products .tools #productSearch{min-width:200px}
+    @media(max-width:1100px){#products .product-workbench{grid-template-columns:1fr}#products.active > .panel{height:auto;min-height:0;overflow:visible}}
+
+    /* ═══ (المهمة ٣) المخزون الحالي — عمود ثابت ═══ */
+    #stock.active > .panel{display:flex;flex-direction:column;height:calc(100dvh - 130px);min-height:400px;overflow-y:auto;overflow:visible!important}
+    #stock .stock-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;margin-bottom:6px}
+    #stock .stock-metric{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 14px;border:1px solid var(--border);border-radius:10px;background:var(--card)}
+    #stock .stock-metric .lbl{font-size:12.5px;font-weight:800;color:var(--muted)}
+    #stock .stock-metric b{font-size:18px;font-weight:900;color:var(--blue);font-variant-numeric:tabular-nums}
+    #stock .stock-metric.clickable{cursor:pointer;border-color:color-mix(in srgb,var(--warn) 35%,var(--border));background:color-mix(in srgb,var(--warn) 6%,var(--card))}
+    #stock .stock-metric.clickable:hover{filter:brightness(1.05)}
+    #stock .stock-metric.clickable .lbl{color:var(--warn)}
+    #stock .stock-metric.clickable b{color:var(--warn)}
+    #stock .stock-table-scroll{flex:1;min-height:200px;overflow:auto}
+    #stock .stock-table-scroll thead th{position:sticky;top:0;z-index:4;background:var(--table-head);box-shadow:0 1px 0 var(--border)}
+    #stock .tools{margin:0 0 6px;flex-wrap:nowrap;align-items:center;gap:10px}
+    #stock .tools h2{white-space:nowrap}
+    @media(max-width:1100px){#stock.active > .panel{height:auto;min-height:0;overflow:visible}}

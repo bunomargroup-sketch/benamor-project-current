@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,transferMinQtyDefault:1,marginRedBelow:5,marginOrangeBelow:15,marginYellowBelow:30,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260916-1602';
+const APP_BUILD='b20260916-1607';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -1530,7 +1530,6 @@ function debounceRenderProducts(){ clearTimeout(_renderProductsTimer); _renderPr
 function renderProducts(){
   const filterDefs=[['productCategoryFilter','category','كل التصنيفات'],['productBrandFilter','brand','كل الماركات'],['productColorFilter','color','كل الألوان'],['productSupplierFilter','supplier_name','كل الموردين']];
   filterDefs.forEach(([id,key,label])=>{const el=q(id); if(el && !el.dataset.ready){const vals=[...new Set(products.map(p=>p[key]).filter(Boolean))].sort(); el.innerHTML=`<option value="">${label}</option>`+vals.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join(''); el.dataset.ready='1';}});
-  if(q('productBottomSearch')) q('productBottomSearch').value=q('productSearch')?.value||'';
   const term=(q('productSearch')?.value||'').trim().toLowerCase();
   const cat=q('productCategoryFilter')?.value||'', brand=q('productBrandFilter')?.value||'', color=q('productColorFilter')?.value||'', supplier=q('productSupplierFilter')?.value||'';
   renderProductCategoryTree(cat);
@@ -1561,19 +1560,26 @@ function renderProducts(){
   applyProductColVisibility(shown, smartParsed);
 
   const sp=selectedProductCode?products.find(p=>p.code===selectedProductCode):null;
-  if(q('selectedProductInfo')) q('selectedProductInfo').textContent=sp?`المحدد: ${sp.code} - ${sp.name}`:'اختر منتجًا من الجدول أولاً';
+  if(q('selectedProductInfo')) q('selectedProductInfo').textContent=sp?`المحدد: ${sp.code} - ${sp.name}`:'';
+  if(q('productActionBar')) q('productActionBar').classList.toggle('hidden',!sp);
   q('productsInfo').textContent = `عرض ${shown.length} من ${rows.length} منتج` + (rows.length>100 ? ' - اكتب في البحث لتضييق النتائج' : '');
 }
 
 
 
 function selectProductRow(code){selectedProductCode=code; renderProducts()}
+/* ═══ (المهمة ٢) نافذة المنتج + شريط الإجراءات + فلاتر ═══ */
+function openProductModal(){q("productModal").classList.add("show"); setTimeout(()=>q("productCode")?.focus(),60)}
+function closeProductModal(){q("productModal").classList.remove("show")}
+function clearProductFilters(){["productCategoryFilter","productBrandFilter","productColorFilter","productSupplierFilter"].forEach(id=>{const el=q(id); if(el){el.value=""; delete el.dataset.ready;}}); if(q("productSearch"))q("productSearch").value=""; renderProducts()}
+function clearStockFilters(){["stockLocationFilter","stockCategoryFilter","stockBrandFilter","stockSupplierFilter","stockStatusFilter"].forEach(id=>{const el=q(id); if(el)el.value="";}); if(q("stockSearch"))q("stockSearch").value=""; renderStock()}
+function filterStockLow(){const el=q("stockStatusFilter"); if(el){el.value="low"; renderStock();}}
 function getSelectedProduct(){
   const p=products.find(x=>String(x.code)===String(selectedProductCode));
   if(!p){toast('اختر منتجًا من الجدول أولاً'); return null;}
   return p;
 }
-function editSelectedProduct(){const p=getSelectedProduct(); if(p) editProduct(p.code)}
+function editSelectedProduct(){ openProductModal();const p=getSelectedProduct(); if(p) editProduct(p.code)}
 function openSelectedProductMovements(){const p=getSelectedProduct(); if(p) openProductMovements(p.code)}
 function viewSelectedProduct(){
   const p=getSelectedProduct(); if(!p) return;
