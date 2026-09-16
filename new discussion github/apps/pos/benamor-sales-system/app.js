@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,transferMinQtyDefault:1,marginRedBelow:5,marginOrangeBelow:15,marginYellowBelow:30,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260916-1319';
+const APP_BUILD='b20260916-1339';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -2324,12 +2324,66 @@ q('returnsBody')?.addEventListener('contextmenu',e=>{
    لا اقتراحين متعاكسين (الوجهة هي الأقل، والمصدر فوق حدّه) · تجاهل 30 يومًا (0052). */
 let sgOpenRequests=[], sgDismissals=[], sgActiveList='A', sgSelected=new Map(), sgNegativesCount=0;
 const SG_DISMISS_DAYS=30;
+/* ═══ (المهمة ٤) قائمة «جرد مطلوب» — الكميات السالبة ═══
+   222 صفاً سالباً تخصّ 215 صنفاً (لقطة الإنتاج): أرقام لا يُبنى عليها قرار.
+   مرتبة بالأكثر سلبيةً أولاً + تصدير CSV/طباعة ليأخذها الموظّف ورقةً إلى الرفّ.
+   «آخر حركة له» = pos_stock.updated_at (تحدَّث مع كل حركة عبر pos_adjust_stock_checked)
+   — محلي بلا نداء شبكة، ولوحة الاقتراحات تستبعدها جميعاً. */
+function requiredCountRows(){
+  const prodMap=new Map(products.map(p=>[String(p.code||'').toLowerCase(),p]));
+  const locMap=new Map(locations.map(l=>[l.id,l]));
+  return stock
+    .filter(s=>Number(s.qty||0)<0)
+    .map(s=>{
+      const p=prodMap.get(String(s.product_code||'').toLowerCase());
+      const l=locMap.get(s.location_id);
+      return {code:String(s.product_code||''), name:(p&&p.name)||s.product_name||'', loc:(l&&l.name)||'—', qty:Number(s.qty||0), lastMove:s.updated_at||'', category:(p&&p.category)||'—'};
+    })
+    .sort((a,b)=>(a.qty-b.qty)||String(a.code).localeCompare(String(b.code)));
+}
+function renderRequiredCount(){
+  const body=q('requiredCountBody'); if(!body) return;
+  const rows=requiredCountRows();
+  const fmtDate=v=>{const d=String(v||''); return d?d.replace('T',' ').slice(0,16):'—';};
+  body.innerHTML=rows.map((r,i)=>`<tr><td>${i+1}</td><td class="ltr"><b>${esc(r.code)}</b>${r.name&&r.name!==r.code?`<div class="mini">${esc(r.name)}</div>`:''}</td><td>${esc(r.loc)}</td><td style="color:var(--bad);font-weight:900">${money(r.qty)}</td><td class="ltr mini">${esc(fmtDate(r.lastMove))}</td><td>${esc(r.category)}</td></tr>`).join('')||'<tr><td colspan="6">لا توجد كميات سالبة — المخزون نظيف 🎉</td></tr>';
+  if(q('requiredCountSummary')){
+    if(rows.length){
+      const perLoc=locations.map(l=>({n:l.name,c:rows.filter(r=>r.loc===l.name).length})).filter(x=>x.c>0).map(x=>x.n+': '+x.c).join(' · ');
+      q('requiredCountSummary').textContent=rows.length+' صفاً سالباً يخصّ '+new Set(rows.map(r=>r.code)).size+' صنفاً — '+perLoc;
+    } else q('requiredCountSummary').textContent='';
+  }
+  if(q('requiredCountFoot')) q('requiredCountFoot').innerHTML=rows.length?`<tr><td colspan="3"><b>مجموع العجز</b></td><td><b style="color:var(--bad)">${money(rows.reduce((a,r)=>a+r.qty,0))}</b></td><td colspan="2" class="mini">${rows.length} صفاً</td></tr>`:'';
+}
+function exportRequiredCountCsv(){
+  const rows=requiredCountRows();
+  if(!rows.length){toast('لا توجد كميات سالبة للتصدير','warn');return;}
+  const head=['#','كود الصنف','اسم الصنف','الموقع','الكمية السالبة','آخر حركة','التصنيف'];
+  const lines=rows.map((r,i)=>[i+1,r.code,r.name,r.loc,r.qty,String(r.lastMove||'').replace('T',' ').slice(0,16),r.category]);
+  const csv='\ufeff'+[head,...lines].map(row=>row.map(v=>`"${String(v==null?'':v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob); const a=document.createElement('a');
+  a.href=url; a.download='جرد-مطلوب-'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),3000);
+  toast('تم تنزيل قائمة جرد مطلوب ('+rows.length+' صفاً)','success');
+}
+function printRequiredCount(){
+  const rows=requiredCountRows();
+  if(!rows.length){toast('لا توجد كميات سالبة للطباعة','warn');return;}
+  const w=window.open('','_blank'); if(!w){toast('المتصفح منع النافذة — اسمح بالنوافذ المنبثقة','warn');return;}
+  const fmtDate=v=>String(v||'').replace('T',' ').slice(0,16)||'—';
+  const trs=rows.map((r,i)=>`<tr><td>${i+1}</td><td class="code">${esc(r.code)}</td><td>${esc(r.name)}</td><td>${esc(r.loc)}</td><td class="neg">${money(r.qty)}</td><td>${esc(r.category)}</td><td class="check">☐</td></tr>`).join('');
+  const html=`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>جرد مطلوب</title><style>body{font-family:Tahoma,Arial,sans-serif;margin:0;padding:18px;color:#111}h1{font-size:20px;margin:0 0 4px}.meta{color:#555;font-size:12px;margin-bottom:12px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{border:1px solid #999;padding:6px 8px;text-align:right}th{background:#eee}.code{direction:ltr;text-align:left;font-weight:700}.neg{color:#b00020;font-weight:900;direction:ltr;text-align:center}.check{text-align:center;font-size:16px}@media print{body{padding:0}}</style></head><body><h1>📋 جرد مطلوب — كميات سالبة</h1><div class="meta">${rows.length} صفاً · ${new Set(rows.map(r=>r.code)).size} صنفاً · ${new Date().toLocaleDateString('ar-LY')} · بواسطة ${esc(appUser?.identifier||'')} — راجع الرفّ وعلّم ✓</div><table><thead><tr><th>#</th><th>الكود</th><th>الصنف</th><th>الموقع</th><th>الكمية</th><th>التصنيف</th><th>تم الجرد؟</th></tr></thead><tbody>${trs}</tbody></table></body></html>`;
+  w.document.write(html); w.document.close();
+}
 function showTransfersSub(which){
   if(q('transfersMainPanel')) q('transfersMainPanel').style.display=which==='transfers'?'':'none';
   if(q('transferSuggestionsPanel')) q('transferSuggestionsPanel').style.display=which==='suggestions'?'':'none';
+  if(q('requiredCountPanel')) q('requiredCountPanel').style.display=which==='requiredCount'?'':'none';
   if(q('transfersSubTabBtn')) q('transfersSubTabBtn').classList.toggle('active',which==='transfers');
   if(q('suggestionsSubTabBtn')) q('suggestionsSubTabBtn').classList.toggle('active',which==='suggestions');
+  if(q('requiredCountSubTabBtn')) q('requiredCountSubTabBtn').classList.toggle('active',which==='requiredCount');
   if(which==='suggestions') onSuggestionsTabOpen();
+  if(which==='requiredCount') renderRequiredCount();
 }
 function initSuggestionFilters(){
   if(q('sgFilterCategory')&&!q('sgFilterCategory').dataset.filled){
@@ -2426,8 +2480,8 @@ function renderSuggestionList(){
   const locName=id=>{const l=locations.find(x=>x.id===id);return l?l.name:'—';};
   if(q('suggestionsNegativesBanner')){
     const b=q('suggestionsNegativesBanner');
-    if(sgNegativesCount>0){ b.style.display='block'; b.textContent='⚠️ '+sgNegativesCount+' صنفاً مستبعد لأن كميته سالبة في أحد المواقع — راجع قائمة جرد مطلوب'; }
-    else b.style.display='none';
+    if(sgNegativesCount>0){ b.style.display='block'; b.textContent='⚠️ '+sgNegativesCount+' صنفاً مستبعد لأن كميته سالبة في أحد المواقع — راجع قائمة جرد مطلوب'; b.style.cursor='pointer'; b.title='اضغط لفتح قائمة جرد مطلوب'; b.onclick=()=>showTransfersSub('requiredCount'); }
+    else { b.style.display='none'; b.onclick=null; }
   }
   const rowKey=x=>String(x.code)+'>'+x.dest;
   const cbCell=x=>`<td><input type="checkbox" data-sg="${esc(rowKey(x))}" data-code="${esc(x.code)}" data-name="${esc(x.name)}" data-qty="${x.qty}" data-from="${x.from}" data-to="${x.dest}" onchange="sgToggleSelect(this)"></td>`;

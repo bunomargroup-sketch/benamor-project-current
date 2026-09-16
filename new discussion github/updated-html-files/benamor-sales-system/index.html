@@ -19,7 +19,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<link rel="stylesheet" href="app.css?v=20260916-1319">
+<link rel="stylesheet" href="app.css?v=20260916-1339">
 </head>
 <body class="auth-locked">
   <header>
@@ -602,6 +602,7 @@
         <div class="tools" style="margin-bottom:10px"><div class="row" style="gap:6px">
           <button class="btn sub-tab active" type="button" id="transfersSubTabBtn" onclick="showTransfersSub('transfers')">التحويلات</button>
           <button class="btn secondary sub-tab" type="button" id="suggestionsSubTabBtn" onclick="showTransfersSub('suggestions')">اقتراحات التحويل</button>
+          <button class="btn secondary sub-tab" type="button" id="requiredCountSubTabBtn" onclick="showTransfersSub('requiredCount')">📋 جرد مطلوب</button>
         </div></div>
         <div id="transfersMainPanel">
         <div class="panel">
@@ -677,6 +678,21 @@
           <div class="row" style="margin-top:10px;gap:8px">
             <button class="btn" type="button" onclick="createTransferFromSuggestions()">🚚 إنشاء فاتورة تحويل من المحدَّد</button>
             <span class="mini" id="sgSelectedInfo"></span>
+          </div>
+        </div>
+
+        <div id="requiredCountPanel" style="display:none">
+          <div class="panel">
+            <div class="tools"><h2>📋 جرد مطلوب — كميات سالبة</h2>
+              <div class="row"><button class="btn" type="button" onclick="exportRequiredCountCsv()">⬇ تصدير CSV</button><button class="btn secondary" type="button" onclick="printRequiredCount()">🖨 طباعة للرفّ</button></div>
+            </div>
+            <div class="mini" id="requiredCountSummary" style="margin-bottom:8px;font-weight:700"></div>
+            <div class="table-scroll" style="max-height:60vh"><table>
+              <thead><tr><th style="width:36px">#</th><th>الصنف</th><th>الموقع</th><th>الكمية السالبة</th><th>آخر حركة له</th><th>التصنيف</th></tr></thead>
+              <tbody id="requiredCountBody"></tbody>
+              <tfoot id="requiredCountFoot"></tfoot>
+            </table></div>
+            <p class="mini">مرتبة بالأكثر سلبيةً أولاً — خذها ورقةً إلى الرفّ: أعد الجرد وصحّح الكمية (أو سجّل تسوية). هذه أرقام لا يُبنى عليها قرار تحويل.</p>
           </div>
         </div>
       </section>
@@ -1258,6 +1274,6 @@
 
 
 
-<script src="app.js?v=20260916-1319"></script>
+<script src="app.js?v=20260916-1339"></script>
 </body>
 </html>
