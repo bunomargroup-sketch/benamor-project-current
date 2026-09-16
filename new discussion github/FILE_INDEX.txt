@@ -86,3 +86,4 @@ updated-html-files/shop/sitemap.xml
 updated-html-files/supabase-pos-customers-constraints.sql
 updated-html-files/supabase-pricechecker-save-cart-rpc.sql
 updated-html-files/supabase-web-products-thumbnails.sql
+DEPLOYMENT-RUNBOOK.md

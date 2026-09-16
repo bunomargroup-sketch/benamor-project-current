@@ -1,0 +1,12 @@
+{
+  "name": "benamor-project",
+  "private": true,
+  "description": "Benamor POS — accounting integrity tests + Supabase schema verification toolchain",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "verify:local": "node supabase/local-verify.js"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8"
+  }
+}

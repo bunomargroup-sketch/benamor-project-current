@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>فحص الصلاحيات الذاتي — مجموعة بن عمر</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
+*{box-sizing:border-box}
+body{font-family:'Cairo',Tahoma,Arial,sans-serif;margin:0;background:#f1f5f9;color:#0f172a;line-height:1.7}
+.wrap{max-width:880px;margin:0 auto;padding:18px 14px 60px}
+.hd{background:#0f2a5f;color:#fff;border-radius:12px;padding:20px 22px;margin-bottom:14px}
+.hd h1{margin:0;font-size:22px;font-weight:800}
+.hd .sub{color:#c7d2fe;font-size:13.5px;margin-top:4px}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px 18px;margin-bottom:12px;box-shadow:0 2px 10px rgba(2,6,23,.05)}
+.card h2{margin:0 0 8px;font-size:16.5px;color:#0f2a5f}
+.mini{font-size:12.5px;color:#64748b}
+.pill{display:inline-block;border-radius:999px;padding:4px 13px;font-size:13px;font-weight:700}
+.pill.ok{background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0}
+.pill.bad{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}
+.pill.info{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
+.pill.warn{background:#fffbeb;color:#b45309;border:1px solid #fde68a}
+.btn{background:#1d4ed8;color:#fff;border:0;border-radius:9px;padding:11px 26px;font:inherit;font-weight:700;font-size:15px;cursor:pointer}
+.btn:disabled{opacity:.5;cursor:wait}
+table{width:100%;border-collapse:collapse;margin-top:10px}
+th{background:#f4f6fa;font-size:12.5px;color:#334155;padding:9px 8px;border-bottom:2px solid #dbe3ee;text-align:right}
+td{padding:10px 8px;border-bottom:1px solid #eef1f6;font-size:13.5px;vertical-align:top}
+td.st{white-space:nowrap;width:110px}
+.msg{font-size:12px;color:#64748b;direction:ltr;text-align:left;word-break:break-all;max-width:340px}
+details{margin-top:4px}
+summary{cursor:pointer;font-size:11.5px;color:#94a3b8}
+pre{direction:ltr;text-align:left;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px;font-size:11px;overflow:auto;max-height:200px}
+.bigmsg{font-size:15px;font-weight:700}
+.kbd{background:#eef2ff;border:1px solid #c7d2fe;border-radius:6px;padding:2px 8px;font-size:12px;direction:ltr;display:inline-block}
+ul{margin:6px 0;padding-inline-start:20px}
+li{margin:3px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hd">
+    <h1>🛡️ فحص الصلاحيات الذاتي — نظام بن عمر</h1>
+    <div class="sub">يفحص سياسات RLS من الداخل: بتوكن دخولك الحالي، بقراءة فقط وبدون أي تدمير للبيانات — اختبره مرة بحساب كاشير ومرة بحساب مدير</div>
+  </div>
+
+  <div class="card" id="sessionCard">
+    <h2>الجلسة الحالية</h2>
+    <div id="sessionInfo" class="mini">جارٍ التحقق…</div>
+  </div>
+
+  <div class="card" id="runCard" style="display:none">
+    <h2>الاختبارات</h2>
+    <div class="mini" style="margin-bottom:10px">
+      كل الاختبارات <b>غير مدمّرة</b>: قراءة فقط + اختبارات صلاحية مصمّمة بحيث تُرفض قبل تنفيذ أي فعل
+      (حذف فاتورة على معرّف عشوائي غير موجود، وإنشاء مستخدم بمعرّف موجود مسبقاً).
+      <b>لا تُنشأ ولا تُحذف ولا تُعدَّل أي بيانات</b> — ما عدا اختبار واحد للمدير يعدّل «نقطة إعادة الطلب» لمنتج واحد ويعيدها فوراً لقيمتها.
+    </div>
+    <button class="btn" id="runBtn" onclick="runAll()">▶ ابدأ الفحص</button>
+    <div id="summary" style="margin-top:12px;display:none"></div>
+    <table id="resTable" style="display:none">
+      <thead><tr><th>الاختبار</th><th class="st">النتيجة</th><th>التفاصيل</th></tr></thead>
+      <tbody id="resBody"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>📖 كيف تقرأ النتائج + خطوات يدوية متبقية</h2>
+    <ul class="mini">
+      <li><b>✓ نجح</b> = السلوك الأمني المطلوب تحقق.</li>
+      <li><b>ⓘ بالتصميم</b> = سلوك مقصود قررته سابقاً وليس ثغرة (مثل: قراءة الكاشير لقائمة الحسابات المالية لأن شاشة الدفع تحتاجها، وتعديل البائع لاسم/سعر منتج).</li>
+      <li>اختبار «حذف فاتورة مباشرة عبر REST»: يُفحص حسمياً فقط من SQL Editor باستعلام (٣) في <span class="kbd">supabase-pos-delete-admin-only.sql</span> — الصفحة لا تجربه عمداً لأن أي محاولة فعلية قد تحذف فاتورة حقيقية.</li>
+      <li><b>متبقٍ يدوياً في SQL Editor</b> (الصفحة لا تستطيع قراءة pg_policies):
+        <span class="kbd">select tablename from pg_policies where schemaname='public' and policyname like 'pos_auth_all%' and tablename like 'pos_%';</span>
+        ⇒ يجب أن تعيد <b>فارغاً</b>.</li>
+      <li>بعد الفحص: صوّر الشاشة وأرسلها إن أردت أن أراجعها معك.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://kkqbkumobeimwuscxztu.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0';
+let session=null,user=null,role=null,branchId=null;
+
+function $(id){return document.getElementById(id)}
+function msgOf(data,text){ return String((data&&(data.message||data.error||data.hint))||text||'').slice(0,220); }
+
+async function callRest(path,method,body,prefer){
+  const res=await fetch(SUPABASE_URL+'/rest/v1/'+path,{
+    method:method||'GET',
+    headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+session.access_token,'Content-Type':'application/json',Prefer:prefer||'return=representation'},
+    body:body?JSON.stringify(body):undefined
+  });
+  const text=await res.text();
+  let data=null; try{data=text?JSON.parse(text):null}catch(e){}
+  return {status:res.status,ok:res.ok,data,text,range:res.headers?res.headers.get('content-range'):null};
+}
+async function callRpc(name,body){ return callRest('rpc/'+name,'POST',body||{}); }
+
+(function init(){
+  try{session=JSON.parse(localStorage.getItem('posAuthSession')||'null')}catch(e){}
+  try{user=JSON.parse(localStorage.getItem('posUser')||'null')}catch(e){}
+  if(!session||!session.access_token){
+    $('sessionInfo').innerHTML='<span class="bigmsg" style="color:#b91c1c">لا توجد جلسة دخول في هذا المتصفح.</span><br>افتح النظام وسجّل الدخول (بالحساب الذي تريد فحصه) في <b>نفس المتصفح</b>، ثم ارجع لهذه الصفحة وحدّثها.';
+    return;
+  }
+  $('sessionInfo').innerHTML='المستخدم: <b>'+String(user&&user.identifier||'؟')+'</b> — جارٍ قراءة الدور من قاعدة البيانات…';
+  callRpc('pos_current_role').then(r=>{
+    if(!r.ok){ $('sessionInfo').innerHTML='المستخدم: <b>'+String(user&&user.identifier||'؟')+'</b> — <span style="color:#b91c1c">'+esc(msgOf(r.data,r.text))+'</span><br><span class="mini">انتهت الجلسة؟ سجّل دخولاً جديداً من النظام ثم حدّث هذه الصفحة.</span>'; return; }
+    role=r.data;
+    return callRpc('pos_current_branch_id').then(b=>{ if(b.ok) branchId=b.data; });
+  }).then(()=>{
+    const seller=(role==='seller_11'||role==='seller_sarraj');
+    $('sessionInfo').innerHTML='المستخدم: <b>'+esc(String(user&&user.identifier||'؟'))+'</b> — الدور من قاعدة البيانات: <span class="pill info">'+esc(role)+'</span>'
+      +(branchId?' — فرعه: <span class="mini ltr">'+esc(branchId)+'</span>':'')
+      +'<br><span class="mini">ستُقيَّم النتائج تلقائياً حسب هذا الدور.</span>';
+    $('runCard').style.display='block';
+  }).catch(e=>{ $('sessionInfo').innerHTML='<span style="color:#b91c1c">تعذر الاتصال: '+esc(e.message)+'</span>'; });
+})();
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+let passCount=0,failCount=0,infoCount=0,warnCount=0;
+function addRow(name,state,detail,raw){
+  const map={ok:['ok','✓ نجح'],bad:['bad','✗ فشل'],info:['info','ⓘ بالتصميم'],warn:['warn','⚠ تنبيه']};
+  const m=map[state]||map.info;
+  if(state==='ok')passCount++; else if(state==='bad')failCount++; else if(state==='warn')warnCount++; else infoCount++;
+  const tr=document.createElement('tr');
+  tr.innerHTML='<td><b>'+esc(name)+'</b></td><td class="st"><span class="pill '+m[0]+'">'+m[1]+'</span></td>'
+    +'<td><div class="msg">'+esc(detail||'')+'</div>'+(raw!=null?'<details><summary>الاستجابة الخام</summary><pre>'+esc(typeof raw==='string'?raw:JSON.stringify(raw))+'</pre></details>':'')+'</td>';
+  $('resBody').appendChild(tr);
+}
+function isRejected(r){ return !r.ok; }
+
+async function runAll(){
+  $('runBtn').disabled=true; $('runBtn').textContent='جارٍ الفحص…';
+  $('resTable').style.display='table'; $('resBody').innerHTML='';
+  passCount=0;failCount=0;infoCount=0;
+  const seller=(role==='seller_11'||role==='seller_sarraj');
+  const admin=(role==='admin');
+
+  /* ١ — المرتبات: لغير المدير يجب [] */
+  let r=await callRest('pos_salary_payments?select=id&limit=5');
+  if(!r.ok && r.status===401){ addRow('جلسة منتهية','bad','انتهت الجلسة — سجّل دخولاً جديداً وحدّث الصفحة'); finish(); return; }
+  if(!admin) addRow('قراءة المرتبات (pos_salary_payments)', (r.ok&&Array.isArray(r.data)&&r.data.length===0)?'ok':'bad', (r.ok&&r.data.length===0)?'عادت [] — الرجل ممنوع':'المفروض تعود [] لغير المدير', r.data);
+  else{
+    const rc=await callRest('pos_salary_payments?select=id&limit=1',undefined,undefined,'count=exact');
+    const total=(rc.range||'').match(/(\d+)$/); /* content-range مثل: 0-0/57 */
+    addRow('قراءة المرتبات (pos_salary_payments)','info','بمدير: الصلاحية تسمح بالقراءة الكاملة — إجمالي الجدول: '+(total?total[1]:'0')+' صف (لو 0 فالجدول فارغ بياناتٍ لا صلاحيةً)', rc.data);
+  }
+
+  /* ٢ — الموظفون */
+  if(!admin){
+    r=await callRest('pos_employees?select=id&limit=5');
+    addRow('قراءة الموظفين (pos_employees)', (r.ok&&Array.isArray(r.data)&&r.data.length===0)?'ok':'bad', (r.ok&&r.data.length===0)?'عادت [] — ممنوع':'المفروض تعود [] لغير المدير', r.data);
+  }else{
+    const rc=await callRest('pos_employees?select=id&limit=1',undefined,undefined,'count=exact');
+    const total=(rc.range||'').match(/(\d+)$/);
+    addRow('قراءة الموظفين (pos_employees)','info','بمدير: الصلاحية تسمح بالقراءة الكاملة — إجمالي الجدول: '+(total?total[1]:'0')+' صف (لو 0 فالجدول فارغ بياناتٍ لا صلاحيةً)', rc.data);
+  }
+
+  /* ٣ — الحسابات المالية: قراءة الجميع بالتصميم (شاشة الدفع تحتاجها) */
+  r=await callRest('pos_finance_accounts?select=id&limit=5');
+  addRow('قراءة الحسابات المالية (pos_finance_accounts)','info','قراءتها متاحة لكل المسجّلين بالتصميم (شاشة الدفع تعرضها). المهم: الكتابة ممنوعة لغير مدير/محاسب — عدد ما يظهر: '+((r.data||[]).length), r.data);
+
+  /* ٤+٥ — تعديل منتج: عمود محظور + عمود مسموح
+     ⚠ مفتاح pos_products هو code (لا يوجد عمود id) */
+  let prod=null;
+  r=await callRest('pos_products?select=code,reorder_point,retail_price&active=eq.true&limit=1');
+  if(r.ok&&r.data&&r.data.length){ prod=r.data[0];
+    const pkey='pos_products?code=eq.'+encodeURIComponent(prod.code);
+    /* ٤: عمود محظور للبائع (reorder_point) — تغيير فعلي واحد ثم عكسه */
+    r=await callRest(pkey,'PATCH',{reorder_point:Number(prod.reorder_point||0)+1});
+    if(seller) addRow('تعديل عمود محظور (reorder_point) بتوكن بائع', isRejected(r)?'ok':'bad', isRejected(r)?('مرفوض: '+msgOf(r.data,r.text)):'قبل التغيير! المفروض التريغر يرفض — أصلح فوراً', r.data||r.text);
+    else if(role==='accountant'||role==='viewer') addRow('تعديل منتج (PATCH) بتوكن '+role, isRejected(r)?'ok':'bad', isRejected(r)?'مرفوض بالسياسة كما يجب':'قبل التعديل وهو ممنوع لهذا الدور!', r.data||r.text);
+    else { /* admin/sales_purchase/warehouse: مسموح — أعد القيمة */
+      const rest=await callRest(pkey,'PATCH',{reorder_point:Number(prod.reorder_point||0)});
+      addRow('تعديل عمود منتج بتوكن '+role, (r.ok&&rest.ok)?'ok':'bad', r.ok?('مسموح لهذا الدور — عُدّلت نقطة إعادة الطلب ثم أُعيدت فوراً لقيمتها ('+(rest.ok?'استُعيدت ✓':'تعذر الاستعادة! صحّح يدوياً للمنتج '+prod.code)+')'):'مرفوض: '+msgOf(r.data,r.text), r.data||r.text);
+    }
+    /* ٥: عمود مسموح للبائع بلا تغيير قيمة (retail_price نفسها) — قرارك المعمول به */
+    if(seller){
+      r=await callRest(pkey,'PATCH',{retail_price:prod.retail_price});
+      addRow('تعديل سعر البيع (عمود مسموح للبائع، بنفس القيمة)', r.ok?'info':'bad', r.ok?'مسموح بالتصميم — قرارك: البائع يعدّل الاسم والأسعار فقط (التريغر يحرس بقية الأعمدة)':'رفض غير متوقع: '+msgOf(r.data,r.text), r.data||r.text);
+    }
+  } else addRow('تعديل منتج','warn','لا يوجد منتج نشط للاختبار عليه (أو فشلت القراءة): '+msgOf(r.data,r.text), r.data);
+
+  /* ٦ — create_app_user: بوابة الدور أول فحص داخل الدالة
+     معرّف '!!' يفشل فحص الحروف (بعد البوابة) — آمن للدورين معاً ولا يُنشئ شيئاً:
+     غير المدير ⇒ ONLY_ADMIN · المدير ⇒ INVALID_IDENTIFIER (دليل اجتياز البوابة) */
+  r=await callRpc('create_app_user',{p_identifier:'!!',p_code:'xxxxxx'});
+  if(!admin) addRow('استدعاء create_app_user', (!r.ok&&msgOf(r.data,r.text).includes('ONLY_ADMIN'))?'ok':'bad', !r.ok?msgOf(r.data,r.text):'استُدعى بنجاح وهذا خطر!', r.data||r.text);
+  else addRow('استدعاء create_app_user (بمدير)', (!r.ok&&msgOf(r.data,r.text).includes('INVALID_IDENTIFIER'))?'ok':'bad', msgOf(r.data,r.text)+' — المدير عبر بوابة الدور ثم رفضه فحص الحروف: لم يُنشأ شيء', r.data||r.text);
+
+  /* ٧ — admin_delete_sale على معرّف عشوائي غير موجود: الدور يُفحص قبل الوجود */
+  const rnd=(crypto&&crypto.randomUUID)?crypto.randomUUID():('00000000-0000-4000-8000-'+Date.now()+'000').slice(0,35);
+  r=await callRpc('admin_delete_sale',{p_sale_id:rnd});
+  if(!admin) addRow('استدعاء admin_delete_sale', (!r.ok&&msgOf(r.data,r.text).includes('ONLY_ADMIN'))?'ok':'bad', !r.ok?msgOf(r.data,r.text):'استُدعي بنجاح وهذا خطر!', r.data||r.text);
+  else addRow('استدعاء admin_delete_sale (بمدير، معرّف عشوائي)', (!r.ok&&msgOf(r.data,r.text).includes('SALE_NOT_FOUND'))?'ok':'bad', msgOf(r.data,r.text)+' — عبر البوابة ثم «غير موجود»: لم يُحذف شيء', r.data||r.text);
+
+  /* ٨ — حصر البائع بفرعه: فواتير الفروع الأخرى يجب [] */
+  if(seller&&branchId){
+    r=await callRest('pos_sales?select=id&location_id=neq.'+branchId+'&limit=5');
+    addRow('فواتير الفروع الأخرى (حصر الفرع)', (r.ok&&Array.isArray(r.data)&&r.data.length===0)?'ok':'bad', (r.ok&&r.data.length===0)?'عادت [] — البائع لا يرى إلا فرعه':'تسريب! البائع يرى فواتير فروع أخرى ('+((r.data||[]).length)+'+)');
+  }
+
+  /* ٩ — حذف الفواتير المباشر: لا يمكن اختباره عبر REST بأمان
+     (أي اختبار فعلي إما لا يميّز الرفض أو يحذف صفحة حقيقية) —
+     الفحص الحاسم والآمن هو استعلام (٣) في supabase-pos-delete-admin-only.sql */
+  addRow('حذف فاتورة مباشرة عبر REST (ثغرة بيع-وشراء)','warn','لا يُختبر هنا عمداً (أي محاولة فعلية تحذف بيانات حقيقية). الفحص الحاسم: شغّل في SQL Editor استعلام (٣) من ملف supabase-pos-delete-admin-only.sql — يجب أن تظهر سياسة DELETE للمدير فقط على pos_sales وpos_stock. إن لم تشغّل الملف بعد فالثغرة مفتوحة لدور بيع-وشراء.',null);
+
+  finish();
+}
+function finish(){
+  $('summary').style.display='block';
+  const good=failCount===0;
+  $('summary').innerHTML='<span class="pill '+(good?'ok':'bad')+'" style="font-size:15px;padding:9px 20px">'
+    +(good?('النتيجة: '+passCount+' نجح / '+infoCount+' بالتصميم'+(warnCount?(' / '+warnCount+' تنبيه'):'')+' — لا فشل ✓'):(passCount+' نجح / '+infoCount+' بالتصميم / <b>'+failCount+' فشل — راجع الصفوف الحمراء</b>'))
+    +'</span> <span class="mini"> — الدور المفحوص: '+esc(role||'؟')+'</span>';
+  $('runBtn').disabled=false; $('runBtn').textContent='▶ أعد الفحص';
+}
+</script>
+</body>
+</html>
