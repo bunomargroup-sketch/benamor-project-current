@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded',applyThemeIcon);
 
 
 const APP_CONFIG={businessName:'مجموعة بن عمر',tagline:'نظام بيع ومخزون',currency:'د.ل',lowStockThreshold:2,transferMinQtyDefault:1,marginRedBelow:5,marginOrangeBelow:15,marginYellowBelow:30,supabaseUrl:'https://kkqbkumobeimwuscxztu.supabase.co',supabaseKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrcWJrdW1vYmVpbXd1c2N4enR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3Nzc0NDAsImV4cCI6MjA5NzM1MzQ0MH0.5hUmVo-RSW_XVrW8XvJZP7_RoRHoxR0Sl0AxplOMwH0'};
-const APP_BUILD='b20260916-1230';
+const APP_BUILD='b20260916-1238';
 function loadLocalConfig(){try{Object.assign(APP_CONFIG,JSON.parse(localStorage.getItem('posAppConfig')||'{}'));}catch(e){}}
 loadLocalConfig();
 const SUPABASE_URL=APP_CONFIG.supabaseUrl;
@@ -3082,7 +3082,7 @@ async function openSaleForEdit(id){
   if(role==='seller_11'||role==='seller_sarraj'){
     const sl=sales.find(x=>x.id===id);
     if(!sl){toast('لم يتم العثور على الفاتورة','warn');return;}
-    if(String(sl.created_by||'')!==String(appUser?.identifier||'')){toast('يمكنك تعديل الفواتير التي أنشأتها أنت فقط — أبلغ المدير لتعديل غيرها','warn');return;}
+    if(String(sl.created_by||'')!==String(appUser?.identifier||'')){toast(sl.created_by?'يمكنك تعديل الفواتير التي أنشأتها أنت فقط — أبلغ المدير لتعديل غيرها':'هذه فاتورة قديمة لا يعرف النظام من أنشأها — المدير وحده يعدّلها','warn');return;}
   }
   try{
     showLoading(true);
@@ -4365,7 +4365,7 @@ q('saleForm').addEventListener('submit', async e=>{
       window.__busy=false; document.querySelectorAll('#salePaymentScreen .btn,.pos-mini-keypad .enter').forEach(b=>b.disabled=false); return;
     }
     const customer_id=await ensureSaleCustomer(balance_due);
-    const invoice_no=editingSaleId ? q('saleInvoiceNo').value.trim() : null; const body={invoice_no,sale_date:q('saleDate').value,location_id,customer_id,payment_method:detectSalePaymentMethod(balance_due),subtotal,discount,total,paid_amount:paid,balance_due,status:'posted',notes:q('saleNotes').value.trim()};
+    const invoice_no=editingSaleId ? q('saleInvoiceNo').value.trim() : null; const body={invoice_no,sale_date:q('saleDate').value,location_id,customer_id,payment_method:detectSalePaymentMethod(balance_due),subtotal,discount,total,paid_amount:paid,balance_due,status:'posted',notes:q('saleNotes').value.trim(),created_by:appUser?.identifier||''}; /* (المهمة ٢) يُكتب في كل فاتورة جديدة — حتى مسار الحفظ الاحتياطي المباشر */
     let saleId=editingSaleId;
     if(!editingSaleId){
       const paymentsForRpc=payRows.map(r=>({...r,account_id:defaultAccountFor(r.payment_method,location_id),notes:''}));
