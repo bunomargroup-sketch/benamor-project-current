@@ -465,7 +465,7 @@
        سياق [5] · شريط جانبي 168px [6] · بطاقة أصناق flex-grow [7] ·
        شريط سفلي [8] — الهدف: عشرة صفوف أصناف مرئية على 900px
        ═════════════════════════════════════════════════════════════════ */
-    #sales.active{display:flex;flex-direction:column;height:calc(100dvh - 175px);min-height:540px;overflow:hidden;color-scheme:dark}
+    #sales.active{display:flex;flex-direction:column;height:calc(100dvh - 175px);min-height:420px;overflow-y:auto;color-scheme:dark;scroll-behavior:smooth}
     #sales .cashier-panel{flex:1;min-height:0;display:flex;flex-direction:column;padding:6px 14px;margin-top:0}
     #sales .edit-alert{margin:0 0 7px}
 
@@ -513,7 +513,7 @@
     #sales .sale-context-strip .stock-chip{background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.35);color:#34d399;padding:2px 9px;font-size:11.5px}
 
     /* [6]+[7] منطقة العمل */
-    #sales .pos-work-area{flex:1;min-height:0;display:grid;grid-template-columns:168px minmax(0,1fr);gap:10px;align-items:stretch}
+    #sales .pos-work-area{flex:1;min-height:200px;display:grid;grid-template-columns:168px minmax(0,1fr);gap:10px;align-items:stretch}
     #sales .pos-action-rail{overflow:auto}
     #sales .pos-items-card{display:flex;flex-direction:column;min-height:0;overflow:hidden;padding:6px 8px;gap:4px}
     #sales .pos-items-card .table-scroll{min-height:0;max-height:none}
