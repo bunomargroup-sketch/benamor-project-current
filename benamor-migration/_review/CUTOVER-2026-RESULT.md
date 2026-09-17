@@ -108,3 +108,9 @@ show 690 only because the sim scenario loads no products; on production they mus
 Expected on production: present=690, both missing counters=0.
 Extraction queries preserved in `benamor-migration/sql-used-for-extraction/`.
 Bat menu: 6 = dry run, 7 = commit (writes result_composites.txt).
+
+Production dry run 2026-09-17: 690 staged / 344 parents / 2 hand-created pairs guarded.
+Diagnostic listed 8 rows referencing products DELETED in the new app post-import (all
+in old-system-inactive, never/rarely sold: AM0399, LG40104, PSB10398, VS10400, AM0460).
+Loader now skips rows whose parent/component product is absent -> production expectation:
+skipped_deleted=8, present_after_run=680. Sim: filter executes, idempotent, zero drift.

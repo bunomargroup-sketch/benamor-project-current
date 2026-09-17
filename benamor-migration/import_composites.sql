@@ -26,18 +26,26 @@ select c.id, c.composite_code, c.component_code, c.component_name, c.qty
 from mig_stage.composites c
 where not exists (select 1 from public.pos_composite_items x where x.id = c.id)
   and not exists (select 1 from public.pos_composite_items x
-                  where x.composite_code = c.composite_code and x.component_code = c.component_code);
+                  where x.composite_code = c.composite_code and x.component_code = c.component_code)
+  -- skip kit rows whose parent/component product was deliberately deleted in the new app
+  and exists (select 1 from public.pos_products p where p.code = c.composite_code)
+  and exists (select 1 from public.pos_products p where p.code = c.component_code);
 
 \set QUIET off
 \echo '=== composite import verification'
 select 'staged_rows (expect 690)' t, count(*) from mig_stage.composites
 union all select 'distinct_composite_products (expect 344)', count(distinct composite_code) from mig_stage.composites
-union all select 'rows_from_this_file_now_present (expect 690)', (select count(*) from public.pos_composite_items x join mig_stage.composites c on c.id = x.id)
-union all select 'pairs_already_present_other_id (info)', (select count(*) from mig_stage.composites c where exists (select 1 from public.pos_composite_items x where x.composite_code = c.composite_code and x.component_code = c.component_code and x.id <> c.id))
-union all select 'parents_missing_in_pos_products (expect 0)', (select count(*) from mig_stage.composites c where not exists (select 1 from public.pos_products p where p.code = c.composite_code))
-union all select 'components_missing_in_pos_products (expect 0)', (select count(*) from mig_stage.composites c where not exists (select 1 from public.pos_products p where p.code = c.component_code));
+union all select 'skipped_deleted_product_rows (expect 8 on production; 0 fresh)', count(*) from mig_stage.composites c
+  where not exists (select 1 from public.pos_products p where p.code = c.composite_code)
+     or not exists (select 1 from public.pos_products p where p.code = c.component_code)
+union all select 'pairs_already_present_hand_created (info)', count(*) from mig_stage.composites c
+  where exists (select 1 from public.pos_composite_items x where x.composite_code = c.composite_code and x.component_code = c.component_code and x.id <> c.id)
+union all select 'rows_from_this_file_present_after_run (expect 680 on production; 690 fresh)',
+  (select count(*) from public.pos_composite_items x join mig_stage.composites c on c.id = x.id
+   where exists (select 1 from public.pos_products p where p.code = c.composite_code)
+     and exists (select 1 from public.pos_products p where p.code = c.component_code));
 
-\echo '=== codes not found in pos_products (informational; empty = perfect)'
+\echo '=== rows below are SKIPPED (parent/component product deleted in the new app)'
 (select 'parent' kind, c.composite_code code, c.component_code used_by, c.qty from mig_stage.composites c
  where not exists (select 1 from public.pos_products p where p.code = c.composite_code))
 union all
