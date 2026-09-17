@@ -65,3 +65,30 @@ after a Supabase backup.
 
 - Real Supabase project / production data beyond current customers + schema chain.
 - On-device app speed after import (static analysis only: risks now small, cache fits).
+
+---
+
+## Addendum — 2026 movement journal (added after user Q&A, same day)
+
+User confirmed: everything since the 09-16 backup was double-entered in BOTH systems (so the old
+system just needs freezing now — nothing is missing), and they want the 2026 journal visible.
+`import_2026_cutover.sql` now also writes, per (branch, product) pair the new system never stocked:
+
+- an **opening movement dated 2026-01-01** holding the start-of-year qty (snapshot − that pair's 2026 delta), and
+- the **2026 journal rows** with real dates: sale / return_customer (negative lines) / purchase /
+  transfer_in / transfer_out, deterministic md5 ids, linked to their documents.
+
+Simulated proof (full chain 0001–0056 + live customers, twice):
+- journal rows = **8,104** (6,004 sale + 246 returns + 729 purchases + 1,371 transfers) = independent CSV math
+- **0 pairs** where opening + journal ≠ imported qty (running total is exact per pair)
+- re-run: zero drift; customer balances still identical to full-history import (0 diffs, 46,962.079)
+- app `typeLabel` covers all inserted movement types in Arabic ✅
+
+New verification lines: `stock_opening_rows = stock_rows_added`,
+`stock_journal_2026_rows = 8,104` (on empty test DB; smaller on production by design),
+`stock_pairs_where_opening_plus_journal_ne_qty = 0`.
+Not replayed: pre-2026 journal (opening row covers it) and 1,401 sale + 126 purchase lines whose
+product was never stocked at that branch in the snapshot (no stock position to journal against).
+
+⚠ Because the journal guard skips pairs that already have ANY movement, a re-run over an
+already-imported database adds nothing — **any new test of this script needs a fresh/empty project.**

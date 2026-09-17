@@ -10,6 +10,10 @@
 --     (receivable 46,962.079; openings 41,990.479 across 30 customers).
 --   • Products, customers, suppliers, purchases+items+supplier ledger, proformas, transfers,
 --     expenses, stock snapshot: FULL (they are small and needed).
+--   • A 2026 stock-movement JOURNAL (sale/return_customer/purchase/transfer_in/transfer_out with
+--     real dates) for pairs the new system never stocked, + an opening row per pair dated 2026-01-01
+--     holding the start-of-year qty → product movements screen shows 2026 history and the running
+--     total per pair lands exactly on the imported qty (verified: 0 inconsistent pairs).
 --
 -- Run with psql from the folder that contains the CSV files:
 --   psql "<SUPABASE_POSTGRES_CONNECTION_STRING>" -v DRY_RUN=1 -f import_2026_cutover.sql   (test: rolls back)
@@ -271,10 +275,35 @@ where not exists (select 1 from public.pos_expenses x where x.id = e.id);
 
 -- ---------------------------------------------------------------- 12/13. stock: only (location, product) pairs the new system has NEVER stocked.
 --       Existing pos_stock rows are the live truth and are left untouched.
+--       delta = the pair's old-system 2026 movement (kept sales+returns, purchases, transfers).
+create table mig_stage.stock_delta as
+select loc as location_id, code as product_code, sum(d) as delta from (
+  select l.id loc, i.product_code code, -i.qty d
+  from mig_stage.sale_items i
+  join mig_stage.sales s on s.id = i.sale_id and s.sale_date >= date '2026-01-01'
+  join mig_stage.loc l on l.name = s.location_name
+  union all
+  select l.id, i.product_code, i.qty
+  from mig_stage.purchase_items i
+  join mig_stage.purchases p on p.id = i.purchase_id and p.purchase_date >= date '2026-01-01'
+  join mig_stage.loc l on l.name = p.location_name
+  union all
+  select l.id, i.product_code, -i.qty
+  from mig_stage.stock_transfer_items i
+  join mig_stage.stock_transfers t on t.id = i.transfer_id and t.transfer_date >= date '2026-01-01'
+  join mig_stage.loc l on l.name = t.from_location_name
+  union all
+  select l.id, i.product_code, i.qty
+  from mig_stage.stock_transfer_items i
+  join mig_stage.stock_transfers t on t.id = i.transfer_id and t.transfer_date >= date '2026-01-01'
+  join mig_stage.loc l on l.name = t.to_location_name
+) x group by 1, 2;
+
 create table mig_stage.stock_applied as
-select l.id as location_id, s.product_code, s.product_name, s.qty
+select l.id as location_id, s.product_code, s.product_name, s.qty, coalesce(d.delta, 0) as delta
 from mig_stage.stock s
 join mig_stage.loc l on l.name = s.location_name
+left join mig_stage.stock_delta d on d.location_id = l.id and d.product_code = s.product_code
 where exists (select 1 from public.pos_products p where p.code = s.product_code)
   and not exists (select 1 from public.pos_stock x where x.location_id = l.id and x.product_code = s.product_code)
   and not exists (select 1 from public.pos_stock_movements x where x.location_id = l.id and x.product_code = s.product_code);
@@ -282,9 +311,46 @@ where exists (select 1 from public.pos_products p where p.code = s.product_code)
 insert into public.pos_stock (location_id, product_code, product_name, qty)
 select location_id, product_code, product_name, qty from mig_stage.stock_applied;
 
-insert into public.pos_stock_movements (movement_date, location_id, product_code, product_name, movement_type, qty_change, reference_table, reference_id, notes)
-select now(), location_id, product_code, product_name, 'adjustment', qty, 'migration', null, 'رصيد افتتاحي من النظام القديم (Cadence)'
-from mig_stage.stock_applied;
+-- opening row PER PAIR dated 2026-01-01 holding the START-OF-YEAR quantity (snapshot qty minus the
+-- pair's 2026 movement) so that opening + 2026 journal rows lands exactly on the imported qty.
+insert into public.pos_stock_movements (id, movement_date, location_id, product_code, product_name, movement_type, qty_change, reference_table, reference_id, notes)
+select (md5('mig2026-open-' || location_id::text || ':' || product_code))::uuid,
+       timestamptz '2026-01-01', location_id, product_code, product_name, 'adjustment',
+       qty - delta, 'migration', null, 'رصيد افتتاحي 2026 مرحّل من النظام القديم (Cadence)'
+from mig_stage.stock_applied
+on conflict (id) do nothing;
+
+-- 2026 movement journal, real dates, deterministic ids; only for the pairs inserted above
+-- (pairs the new system already trades keep their own live journal — no duplication).
+insert into public.pos_stock_movements (id, movement_date, location_id, product_code, product_name, movement_type, qty_change, reference_table, reference_id, notes)
+select (md5('mig2026-mv-sale-' || i.id::text))::uuid, s.sale_date::timestamptz, l.id, i.product_code, i.product_name,
+       case when i.qty < 0 then 'return_customer' else 'sale' end, -i.qty, 'pos_sales', s.id, 'حركة 2026 من النظام القديم (Cadence)'
+from mig_stage.sale_items i
+join mig_stage.sales s on s.id = i.sale_id and s.sale_date >= date '2026-01-01'
+join mig_stage.loc l on l.name = s.location_name
+join mig_stage.stock_applied a on a.location_id = l.id and a.product_code = i.product_code
+union all
+select (md5('mig2026-mv-pur-' || i.id::text))::uuid, p.purchase_date::timestamptz, l.id, i.product_code, i.product_name,
+       'purchase', i.qty, 'pos_purchases', p.id, 'حركة 2026 من النظام القديم (Cadence)'
+from mig_stage.purchase_items i
+join mig_stage.purchases p on p.id = i.purchase_id and p.purchase_date >= date '2026-01-01'
+join mig_stage.loc l on l.name = p.location_name
+join mig_stage.stock_applied a on a.location_id = l.id and a.product_code = i.product_code
+union all
+select (md5('mig2026-mv-tr-o-' || i.id::text))::uuid, t.transfer_date::timestamptz, l.id, i.product_code, i.product_name,
+       'transfer_out', -i.qty, 'pos_stock_transfers', t.id, 'حركة 2026 من النظام القديم (Cadence)'
+from mig_stage.stock_transfer_items i
+join mig_stage.stock_transfers t on t.id = i.transfer_id and t.transfer_date >= date '2026-01-01'
+join mig_stage.loc l on l.name = t.from_location_name
+join mig_stage.stock_applied a on a.location_id = l.id and a.product_code = i.product_code
+union all
+select (md5('mig2026-mv-tr-i-' || i.id::text))::uuid, t.transfer_date::timestamptz, l.id, i.product_code, i.product_name,
+       'transfer_in', i.qty, 'pos_stock_transfers', t.id, 'حركة 2026 من النظام القديم (Cadence)'
+from mig_stage.stock_transfer_items i
+join mig_stage.stock_transfers t on t.id = i.transfer_id and t.transfer_date >= date '2026-01-01'
+join mig_stage.loc l on l.name = t.to_location_name
+join mig_stage.stock_applied a on a.location_id = l.id and a.product_code = i.product_code
+on conflict (id) do nothing;
 
 -- (numbering: live invoice counter uses the S- prefix and customer_no uses a sequence; old numbers cannot collide, nothing to bump)
 
@@ -313,7 +379,16 @@ union all select 'suppliers_new', count(*) from public.pos_suppliers where notes
 union all select 'purchases', count(*) from public.pos_purchases where notes like 'old_id=%'
 union all select 'expenses', count(*) from public.pos_expenses where notes like 'old_id=%'
 union all select 'stock_rows_added', count(*) from mig_stage.stock_applied
-union all select 'stock_rows_skipped_existing', (select count(*) from mig_stage.stock) - count(*) from mig_stage.stock_applied;
+union all select 'stock_rows_skipped_existing', (select count(*) from mig_stage.stock) - count(*) from mig_stage.stock_applied
+union all select 'stock_opening_rows (expect = stock_rows_added)', count(*) from public.pos_stock_movements where notes like 'رصيد افتتاحي 2026%'
+union all select 'stock_journal_2026_rows (expect 8104 on empty test DB)', count(*) from public.pos_stock_movements where notes like 'حركة 2026 من النظام القديم%'
+union all select 'stock_pairs_where_opening_plus_journal_ne_qty (expect 0)',
+  (select count(*) from (
+     select a.location_id, a.product_code
+     from mig_stage.stock_applied a
+     join public.pos_stock st on st.location_id = a.location_id and st.product_code = a.product_code
+     where abs(st.qty - coalesce((select sum(m.qty_change) from public.pos_stock_movements m
+        where m.location_id = a.location_id and m.product_code = a.product_code), 0)) > 0.001) bad);
 
 \echo '=== must all be 0'
 select
