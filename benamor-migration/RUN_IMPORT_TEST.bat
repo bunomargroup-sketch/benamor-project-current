@@ -53,14 +53,30 @@ echo ------------------------------------------------------------
 echo   1 = prepare an EMPTY test project ^(run 56 migrations + current customers^)
 echo   2 = DRY RUN the 2026 import  ^(writes NOTHING - safe anywhere^)
 echo   3 = COMMIT the 2026 import to THIS database
+echo   5 = BACKUP this database to a file FIRST  ^(pg_dump -Fc^)
 echo   4 = exit
 echo ------------------------------------------------------------
-set /p CH=choice [1/2/3/4] :
+set /p CH=choice [1/2/3/5/4] :
 
 if "%CH%"=="1" goto prepare
 if "%CH%"=="2" goto dryrun
 if "%CH%"=="3" goto commit
+if "%CH%"=="5" goto backup
 if "%CH%"=="4" goto end
+goto menu
+
+:backup
+set BAKFILE=%~dp0backup_before_import.dump
+echo.
+echo Creating backup: %BAKFILE%
+pg_dump -Fc -f "%BAKFILE%"
+if errorlevel 1 (
+  echo  [X] BACKUP FAILED - do NOT run option 3 without a good backup.
+  pause
+  goto menu
+)
+echo  [OK] backup written. Keep this file somewhere safe.
+pause
 goto menu
 
 :prepare
