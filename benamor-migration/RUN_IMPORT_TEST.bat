@@ -8,19 +8,29 @@ rem ============================================================
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 
-where psql >nul 2>&1
-if errorlevel 1 (
-  echo.
-  echo  [X] psql not found. Install PostgreSQL "Command Line Tools" first:
-  echo      https://www.postgresql.org/download/windows/
-  echo.
-  pause
-  exit /b 1
+rem ---- use the NEWEST installed PostgreSQL version (a 13x pg_dump cannot back up a 17.x server)
+set PGBIN=
+for /l %%v in (99,-1,8) do (
+  if not defined PGBIN if exist "C:\Program Files\PostgreSQL\%%v\bin\psql.exe" set "PGBIN=C:\Program Files\PostgreSQL\%%v\bin"
+)
+if defined PGBIN (
+  set "PSQL=%PGBIN%\psql.exe" & set "PGDUMP=%PGBIN%\pg_dump.exe"
+) else (
+  where psql >nul 2>&1
+  if errorlevel 1 (
+    echo.
+    echo  [X] psql not found. Install PostgreSQL 17 "Command Line Tools" first:
+    echo      https://www.postgresql.org/download/windows/
+    echo.
+    pause
+    exit /b 1
+  )
+  set "PSQL=psql" & set "PGDUMP=pg_dump"
 )
 echo.
 echo ------------------------------------------------------------
-echo  psql found:
-psql --version
+echo  PostgreSQL tools used: %PGBIN%  ^(empty = from PATH^)
+"%PSQL%" --version
 echo ------------------------------------------------------------
 echo.
 echo  Open Supabase -^> your project -^> Connect (top bar) -^>
@@ -36,7 +46,7 @@ set PGCLIENTENCODING=UTF8
 
 echo.
 echo Testing connection to %PGHOST% ...
-psql -c "select version();"
+"%PSQL%" -c "select version();"
 if errorlevel 1 (
   echo.
   echo  [X] CONNECTION FAILED. Check host / user / password and try again.
@@ -69,7 +79,7 @@ goto menu
 set BAKFILE=%~dp0backup_before_import.dump
 echo.
 echo Creating backup: %BAKFILE%
-pg_dump -Fc -f "%BAKFILE%"
+"%PGDUMP%" -Fc -f "%BAKFILE%"
 if errorlevel 1 (
   echo  [X] BACKUP FAILED - do NOT run option 3 without a good backup.
   pause
@@ -84,7 +94,7 @@ echo.
 echo Running migrations 0001..0056 ...
 for %%f in ("%~dp0..\supabase\migrations\*.sql") do (
   echo   %%~nxf
-  psql -q -v ON_ERROR_STOP=1 -f "%%~ff" >nul 2>&1
+  "%PSQL%" -q -v ON_ERROR_STOP=1 -f "%%~ff" >nul 2>&1
   if errorlevel 1 (
     echo.
     echo  [X] FAILED at %%~nxf - re-run with: psql -f "%%~ff" to see the error
@@ -93,7 +103,7 @@ for %%f in ("%~dp0..\supabase\migrations\*.sql") do (
   )
 )
 echo Migrations OK. Loading current customers ...
-psql -v ON_ERROR_STOP=1 -f "%~dp0..\new discussion github\sql\pos-customers-import.sql" >nul 2>&1
+"%PSQL%" -v ON_ERROR_STOP=1 -f "%~dp0..\new discussion github\sql\pos-customers-import.sql" >nul 2>&1
 if errorlevel 1 (
   echo  [X] customers import failed - run it manually to see the error
   pause
@@ -106,7 +116,7 @@ goto menu
 :dryrun
 echo.
 echo DRY RUN - a report will open in Notepad. Nothing will be written.
-psql -v DRY_RUN=1 -f "%~dp0import_2026_cutover.sql" > "%~dp0result.txt" 2>&1
+"%PSQL%" -v DRY_RUN=1 -f "%~dp0import_2026_cutover.sql" > "%~dp0result.txt" 2>&1
 if errorlevel 1 ( echo  [X] the import script reported an ERROR - see result.txt ) else ( echo  [OK] script finished - see result.txt )
 notepad "%~dp0result.txt"
 goto menu
@@ -116,7 +126,7 @@ echo.
 echo  *** You are about to WRITE the 2026 import to: %PGHOST% ***
 set /p GO=Type YES to confirm :
 if /i not "%GO%"=="YES" ( echo  Aborted - nothing committed. & pause & goto menu )
-psql -v DRY_RUN=0 -f "%~dp0import_2026_cutover.sql" >> "%~dp0result.txt" 2>&1
+"%PSQL%" -v DRY_RUN=0 -f "%~dp0import_2026_cutover.sql" >> "%~dp0result.txt" 2>&1
 if errorlevel 1 ( echo  [X] the import script reported an ERROR - see result.txt ) else ( echo  [OK] COMMITTED - see result.txt )
 notepad "%~dp0result.txt"
 goto menu
