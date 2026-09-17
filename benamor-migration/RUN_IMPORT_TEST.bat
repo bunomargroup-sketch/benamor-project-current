@@ -127,7 +127,9 @@ goto menu
 
 :commit
 echo.
-echo  *** You are about to WRITE the 2026 import to: %PGHOST% ***
+echo  *** You are about to WRITE the 2026 import to:
+echo      host: %PGHOST%
+echo      user: %PGUSER%   ^(check the project ref after postgres.^)
 set /p GO=Type YES to confirm :
 if /i not "%GO%"=="YES" ( echo  Aborted - nothing committed. & pause & goto menu )
 "%PSQL%" -v DRY_RUN=0 -f "%~dp0import_2026_cutover.sql" >> "%~dp0result.txt" 2>&1
@@ -145,7 +147,9 @@ goto menu
 
 :compcommit
 echo.
-echo  *** You are about to WRITE the composite import to: %PGHOST% ***
+echo  *** You are about to WRITE the composite import to:
+echo      host: %PGHOST%
+echo      user: %PGUSER%   ^(check the project ref after postgres.^)
 set /p GO2=Type YES to confirm :
 if /i not "%GO2%"=="YES" ( echo  Aborted - nothing committed. & pause & goto menu )
 "%PSQL%" -v DRY_RUN=0 -f "%~dp0import_composites.sql" >> "%~dp0result_composites.txt" 2>&1

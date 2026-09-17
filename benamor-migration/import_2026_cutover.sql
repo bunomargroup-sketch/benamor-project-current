@@ -157,24 +157,44 @@ from mig_stage.products s join mig_stage.supplier_map m on m.mig_id = s.supplier
 where p.code = s.code and p.supplier_id is null;
 
 -- ---------------------------------------------------------------- 6. customers (existing customer_no untouched)
---   match order: customer_no → cleaned phone (live unique index) → first old customer with the same phone → new row
+--   match order: customer_no → cleaned phone → first old customer with the same phone → new row
+--   each live-side match is forced to ONE deterministic row: production live data can contain
+--   duplicate phones/customer_nos and a plain join would fan out (duplicating every downstream row).
 create table mig_stage.customer_map as
 with c as (
   select *, nullif(ltrim(regexp_replace(coalesce(phone,''), '[^0-9]', '', 'g'), '0'), '') as phone_clean,
          row_number() over (partition by nullif(ltrim(regexp_replace(coalesce(phone,''), '[^0-9]', '', 'g'), '0'), '') order by old_id) as rn
-  from mig_stage.customers)
-select c.id as mig_id,
-       coalesce(pn.id, pp.id, first.id, c.id) as live_id,
-       (pn.id is null and pp.id is null and first.id is null) as is_new,
-       c.customer_no, c.old_id
-from c
--- same number counts as the same person only when the phone agrees (old system re-used numbers)
-left join public.pos_customers pn on pn.customer_no = c.customer_no
+  from mig_stage.customers),
+pn_1 as (  -- same number counts as the same person only when the phone agrees (old system re-used numbers)
+  select distinct on (c.id) c.id as mig_id, pn.id as live_id
+  from c
+  join public.pos_customers pn on pn.customer_no = c.customer_no
        and (c.phone_clean is null or nullif(ltrim(regexp_replace(coalesce(pn.phone,''), '[^0-9]', '', 'g'), '0'), '') is null
             or ltrim(regexp_replace(coalesce(pn.phone,''), '[^0-9]', '', 'g'), '0') = c.phone_clean)
-left join public.pos_customers pp on c.phone_clean is not null
+  order by c.id, pn.created_at nulls last, pn.id),
+pp_1 as (
+  select distinct on (c.id) c.id as mig_id, pp.id as live_id
+  from c
+  join public.pos_customers pp on c.phone_clean is not null
        and ltrim(regexp_replace(coalesce(pp.phone,''), '[^0-9]', '', 'g'), '0') = c.phone_clean
+  order by c.id, pp.created_at nulls last, pp.id)
+select c.id as mig_id,
+       coalesce(pn_1.live_id, pp_1.live_id, first.id, c.id) as live_id,
+       (pn_1.live_id is null and pp_1.live_id is null and first.id is null) as is_new,
+       c.customer_no, c.old_id
+from c
+left join pn_1 on pn_1.mig_id = c.id
+left join pp_1 on pp_1.mig_id = c.id
 left join c first on c.phone_clean is not null and c.rn > 1 and first.phone_clean = c.phone_clean and first.rn = 1;
+
+-- hard stop: any residual map fan-out would duplicate downstream rows — abort instead of corrupting
+do $$
+begin
+  if exists (select mig_id from mig_stage.customer_map group by 1 having count(*) > 1)
+     or exists (select mig_id from mig_stage.supplier_map group by 1 having count(*) > 1) then
+    raise exception 'MIGRATION ABORTED: matching map fan-out (duplicate live match) detected';
+  end if;
+end $$;
 
 -- new rows: keep the old number unless it is already taken (live or by another new row) → suffix with old id
 create table mig_stage.customer_new as

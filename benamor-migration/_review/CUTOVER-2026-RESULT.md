@@ -114,3 +114,19 @@ Diagnostic listed 8 rows referencing products DELETED in the new app post-import
 in old-system-inactive, never/rarely sold: AM0399, LG40104, PSB10398, VS10400, AM0460).
 Loader now skips rows whose parent/component product is absent -> production expectation:
 skipped_deleted=8, present_after_run=680. Sim: filter executes, idempotent, zero drift.
+
+
+---
+
+## Addendum 3 — production-run discovery (2026-09-17 evening)
+User confirmed pos_sales in the APP project (kkqbkumobeimwuscxztu) had only its 60 live sales:
+all previous "committed" dry runs were against the TEST project (identical numbers by design).
+First true production dry run exposed a real production-only failure: customers_map fan-out —
+live customers created during double-entry share cleaned phone numbers, so an old customer
+matched 2+ live rows and every downstream sale row duplicated inside the single insert
+(psql error: pos_sales_pkey; rolled back, zero damage; the sim/test fixture never had such ties).
+Fix: live-side matches collapsed to one deterministic row per staged customer via distinct-on
+(order: oldest created_at, then id) + a hard abort gate if any map fan-out ever survives.
+Supplier map safe (unique lower(trim(name)) index). Full sim after fix: identical anchors
+(2,738 / 7,606 / 2,691 / 348 / 30 / 27 / 41,990.479 / 46,962.079 / 8,104 journal / 0 stock-pair
+mismatch, pass-2 zero drift). Bat commit prompts now print host AND user (project ref visible).
