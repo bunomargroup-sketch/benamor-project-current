@@ -65,7 +65,7 @@ function tokenize(script) {
     if (tr.startsWith('\\')) {
       flush();
       let m;
-      if ((m = tr.match(/^\\copy\s+mig_stage\.(\w+)\s+from\s+'([^']+)'/))) ops.push({ t: 'copy', table: m[1], file: m[2] });
+      if ((m = tr.match(/^\\copy\s+\w+\.(\w+)\s+from\s+'([^']+)'/))) ops.push({ t: 'copy', table: m[1], file: m[2] });
       else if ((m = tr.match(/^\\echo\s+'(.*)'$/))) ops.push({ t: 'echo', text: m[1] });
       else if (tr.match(/^\\if\s+:\{\?/)) ops.push({ t: 'if_maybe' });
       else if (tr.match(/^\\if\s+:DRY_RUN/)) ops.push({ t: 'if_dry' });

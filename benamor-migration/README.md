@@ -44,3 +44,9 @@
 - المبالغ في رؤوس المستندات مخزنة ×1000؛ حقل `RESTE_PAYER` قديم غير محدَّث — الرصيد حُسب من الدفعات الفعلية.
 - 11 فاتورة بلا بنود (قيمتها صفر غالباً)، 5 فواتير مجموع بنودها أقل من الرأس (بند مؤرشف في القديم): س-3404، 2025-ين-10، س-1836، س-5303، س-2702.
 - 17 بند بيع تشير إلى 6 أكواد أصناف مؤرشفة (تُستورد كنص فقط).
+
+## Composite products (added 2026-09-17)
+`pos_composite_items.csv` (690 rows, from the same backup — user's re-export) loads via:
+  option 6 = dry run, option 7 = commit in RUN_IMPORT_TEST.bat (script: import_composites.sql)
+Idempotent; skips pairs already created by hand in the new app. `sql-used-for-extraction/`
+keeps the original OpenConcerto→pos_* transformation queries for audit.

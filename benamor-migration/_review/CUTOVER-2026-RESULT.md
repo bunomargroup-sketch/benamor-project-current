@@ -92,3 +92,19 @@ product was never stocked at that branch in the snapshot (no stock position to j
 
 ⚠ Because the journal guard skips pairs that already have ANY movement, a re-run over an
 already-imported database adds nothing — **any new test of this script needs a fresh/empty project.**
+
+---
+
+## Addendum 2 — composite products (from user-reexported benamor-migration2)
+
+User re-exported the same backup (16-09-2026) including the previously missing
+`pos_composite_items` table; every other CSV is byte-identical to the original batch.
+New targeted loader `import_composites.sql` (DRY_RUN idempotent, guarded by id AND by
+(composite_code, component_code) pair so hand-created composites in the new app are
+never duplicated). CSV audited: 690 rows / 690 unique ids / 690 unique pairs /
+0 parents or components missing vs the 4,509 products / no qty<=0.
+Sim: 690 inserted, pass-2 zero drift. (In the sim the two "missing vs products" counters
+show 690 only because the sim scenario loads no products; on production they must read 0.)
+Expected on production: present=690, both missing counters=0.
+Extraction queries preserved in `benamor-migration/sql-used-for-extraction/`.
+Bat menu: 6 = dry run, 7 = commit (writes result_composites.txt).

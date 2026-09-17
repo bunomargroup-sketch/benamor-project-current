@@ -64,14 +64,18 @@ echo   1 = prepare an EMPTY test project ^(run 56 migrations + current customers
 echo   2 = DRY RUN the 2026 import  ^(writes NOTHING - safe anywhere^)
 echo   3 = COMMIT the 2026 import to THIS database
 echo   5 = BACKUP this database to a file FIRST  ^(pg_dump -Fc^)
+echo   6 = DRY RUN composite-products import  ^(690 kit rows^)
+echo   7 = COMMIT composite-products import  ^(asks YES first^)
 echo   4 = exit
 echo ------------------------------------------------------------
-set /p CH=choice [1/2/3/5/4] :
+set /p CH=choice [1/2/3/5/6/7/4] :
 
 if "%CH%"=="1" goto prepare
 if "%CH%"=="2" goto dryrun
 if "%CH%"=="3" goto commit
 if "%CH%"=="5" goto backup
+if "%CH%"=="6" goto compdry
+if "%CH%"=="7" goto compcommit
 if "%CH%"=="4" goto end
 goto menu
 
@@ -129,6 +133,24 @@ if /i not "%GO%"=="YES" ( echo  Aborted - nothing committed. & pause & goto menu
 "%PSQL%" -v DRY_RUN=0 -f "%~dp0import_2026_cutover.sql" >> "%~dp0result.txt" 2>&1
 if errorlevel 1 ( echo  [X] the import script reported an ERROR - see result.txt ) else ( echo  [OK] COMMITTED - see result.txt )
 notepad "%~dp0result.txt"
+goto menu
+
+:compdry
+echo.
+echo DRY RUN composite import - a report will open in Notepad. Nothing will be written.
+"%PSQL%" -v DRY_RUN=1 -f "%~dp0import_composites.sql" > "%~dp0result_composites.txt" 2>&1
+if errorlevel 1 ( echo  [X] the script reported an ERROR - see result_composites.txt ) else ( echo  [OK] script finished - see result_composites.txt )
+notepad "%~dp0result_composites.txt"
+goto menu
+
+:compcommit
+echo.
+echo  *** You are about to WRITE the composite import to: %PGHOST% ***
+set /p GO2=Type YES to confirm :
+if /i not "%GO2%"=="YES" ( echo  Aborted - nothing committed. & pause & goto menu )
+"%PSQL%" -v DRY_RUN=0 -f "%~dp0import_composites.sql" >> "%~dp0result_composites.txt" 2>&1
+if errorlevel 1 ( echo  [X] the script reported an ERROR - see result_composites.txt ) else ( echo  [OK] COMMITTED - see result_composites.txt )
+notepad "%~dp0result_composites.txt"
 goto menu
 
 :end
