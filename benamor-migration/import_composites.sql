@@ -37,6 +37,14 @@ union all select 'pairs_already_present_other_id (info)', (select count(*) from 
 union all select 'parents_missing_in_pos_products (expect 0)', (select count(*) from mig_stage.composites c where not exists (select 1 from public.pos_products p where p.code = c.composite_code))
 union all select 'components_missing_in_pos_products (expect 0)', (select count(*) from mig_stage.composites c where not exists (select 1 from public.pos_products p where p.code = c.component_code));
 
+\echo '=== codes not found in pos_products (informational; empty = perfect)'
+(select 'parent' kind, c.composite_code code, c.component_code used_by, c.qty from mig_stage.composites c
+ where not exists (select 1 from public.pos_products p where p.code = c.composite_code))
+union all
+(select 'component', c.component_code, c.composite_code, c.qty from mig_stage.composites c
+ where not exists (select 1 from public.pos_products p where p.code = c.component_code))
+order by 1, 2;
+
 drop table mig_stage.composites;
 
 \if :DRY_RUN
