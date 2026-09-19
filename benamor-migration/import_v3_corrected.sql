@@ -383,7 +383,7 @@ union all select 'live_twins_transfers_deleted', (select count(*) from mig_stage
 union all select 'live_twins_expenses_deleted', (select count(*) from mig_stage.dead_expenses)
 union all select 'movement_journal_rows_inserted', (select count(*) from public.pos_stock_movements m where exists (select 1 from mig_stage.stock_movements x where x.id = m.id))
 union all select 'stock_rows_written', (select count(*) from public.pos_stock st where exists (select 1 from mig_stage.stock_final f where f.location_id = st.location_id and f.product_code = st.product_code))
-union all select 'stock_pairs_qty_vs_movement_sum_violations (HARD: expect 0)', (select count(*) from mig_stage.stock_final f where abs(f.final_qty - coalesce((select sum(m.qty_change) from public.pos_stock_movements m where m.location_id = f.location_id and m.product_code = f.product_code),0)) > 0.001)
+union all select 'stock_pairs_qty_vs_movement_sum_violations (HARD: expect 0)', (select count(*) from mig_stage.stock_final f where abs(f.final_qty - coalesce((select sum(m.qty_change) from public.pos_stock_movements m where m.location_id = f.location_id and m.product_code = f.product_code),0)) > 0.001);
 
 \echo '=== must be 0 / 1'
 select (select count(*) from public.pos_sale_items i where not exists (select 1 from public.pos_sales s where s.id=i.sale_id)) orphan_items,
