@@ -18,7 +18,7 @@ union all select md5('live-twin-4')::uuid, 'تج-4', date '2026-09-18', b11, nul
 -- live movement rows mirror the staged twin effects exactly (faithful re-entry)
 insert into public.pos_stock_movements (id, movement_date, location_id, product_code, product_name, movement_type, qty_change, reference_table, reference_id, notes)
 select md5('live-mv-a1')::uuid, timestamptz '2026-09-09 10:00', (select id from public.pos_locations where name='فرع السراج'), 'MC10643', 'x', 'sale', -1, 'pos_sales', md5('live-twin-1')::uuid, null
-union all select md5('live-mv-a2')::uuid, timestamptz '2026-09-09 10:01', (select id from public.pos_locations where name='فرع السراج'), 'PA30370', 'x', 'sale', -4, 'pos_sales', md5('live-twin-2')::uuid, null
+union all select md5('live-mv-a2')::uuid, timestamptz '2026-09-09 10:01', (select id from public.pos_locations where name='فرع السراج'), 'PA30370', 'x', 'sale', -3, 'pos_sales', md5('live-twin-2')::uuid, null
 union all select md5('live-mv-a3')::uuid, timestamptz '2026-09-09 10:02', (select id from public.pos_locations where name='فرع السراج'), 'ALVM50206', 'x', 'sale', -1, 'pos_sales', md5('live-twin-3')::uuid, null
 union all select md5('live-mv-a4')::uuid, timestamptz '2026-09-09 10:02', (select id from public.pos_locations where name='فرع السراج'), 'PLSA0550', 'x', 'sale', -6, 'pos_sales', md5('live-twin-3')::uuid, null
 union all select md5('live-mv-a5')::uuid, timestamptz '2026-09-09 10:02', (select id from public.pos_locations where name='فرع السراج'), 'ARSB80270', 'x', 'sale', -1, 'pos_sales', md5('live-twin-3')::uuid, null

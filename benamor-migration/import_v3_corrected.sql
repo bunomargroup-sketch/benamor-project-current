@@ -346,11 +346,21 @@ where not exists (select 1 from public.pos_stock_movements e where e.id = x.id)
                     and not exists (select 1 from mig_stage.sales_net n where n.id = ws.id));
 
 -- ---------- stock rebuild: snapshot movement-derived qty + surviving live deltas after the snapshot ----------
+-- stock continuity: for twin transactions the SURVIVING live copy is authoritative,
+-- so stock = staged closing balance MINUS skipped (twin-linked) old movement effects
+-- PLUS all surviving live movement effects. By construction final_qty == the sum of
+-- every movement row that remains in the table for that item/location pair.
 create table mig_stage.stock_final as
 select l.id as location_id, s.product_code, s.product_name,
-       s.qty + coalesce((select sum(m.qty_change) from public.pos_stock_movements m
-                          where m.location_id = l.id and m.product_code = s.product_code
-                            and m.movement_date::date > date '2026-09-17'), 0) as final_qty
+       s.qty
+       - coalesce((select sum(x.qty_change) from mig_stage.stock_movements x
+                    join mig_stage.loc xl on xl.name = x.location_name
+                    where xl.id = l.id and x.product_code = s.product_code
+                      and not exists (select 1 from public.pos_stock_movements pm where pm.id = x.id)), 0)
+       + coalesce((select sum(m.qty_change) from public.pos_stock_movements m
+                    where m.location_id = l.id and m.product_code = s.product_code
+                      and not exists (select 1 from mig_stage.stock_movements xm where xm.id = m.id)), 0)
+       as final_qty
 from mig_stage.stock s
 join mig_stage.loc l on l.name = s.location_name;
 
@@ -366,7 +376,8 @@ where st.location_id = f.location_id and st.product_code = f.product_code and st
 \set QUIET off
 \echo '=== import-set profile'
 select 'sales_bulk_2026_or_owing (expect 2681)' t, count(*) from mig_stage.sales_keep
-union all select 'window_twin_skipped_live_exists', count(*) from mig_stage.sales_twin
+union all select 'window_total (expect 69)', count(*) from mig_stage.sales where sale_date > date '2026-09-08'
+union all select 'window_twin_skipped_live_exists', count(distinct old_id) from mig_stage.sales_twin
 union all select 'window_net_imported_no_live_twin', count(*) from mig_stage.sales_net
 union all select 'sales_now_in_table_with_old_markers', (select count(*) from public.pos_sales where notes like 'old_ticket_id=%')
 union all select 'sale_items_of_import_set', (select count(*) from mig_stage.sale_items i join mig_stage.sales_import s on s.id = i.sale_id)
