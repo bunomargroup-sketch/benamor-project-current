@@ -105,6 +105,7 @@ console.log(`[setup] schema 0001..0056 applied (${migFiles.length} migrations) i
 
 // current production customers (README step 1)
 await db.exec(fs.readFileSync(path.join(ROOT, 'new discussion github/sql/pos-customers-import.sql'), 'utf8'));
+if (process.env.INJECT) { console.log('[inject]', process.env.INJECT); await db.exec(fs.readFileSync(process.env.INJECT, 'utf8')); }
 const liveC = await db.query('select count(*)::int c from public.pos_customers');
 console.log(`[setup] current customers loaded: ${liveC.rows[0].c}`);
 
