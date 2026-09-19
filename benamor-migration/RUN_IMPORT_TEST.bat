@@ -66,9 +66,10 @@ echo   3 = COMMIT the 2026 import to THIS database
 echo   5 = BACKUP this database to a file FIRST  ^(pg_dump -Fc^)
 echo   6 = DRY RUN composite-products import  ^(690 kit rows^)
 echo   7 = COMMIT composite-products import  ^(asks YES first^)
+echo   8 = INSPECT live database  ^(read-only, writes nothing^)
 echo   4 = exit
 echo ------------------------------------------------------------
-set /p CH=choice [1/2/3/5/6/7/4] :
+set /p CH=choice [1/2/3/5/6/7/8/4] :
 
 if "%CH%"=="1" goto prepare
 if "%CH%"=="2" goto dryrun
@@ -76,6 +77,7 @@ if "%CH%"=="3" goto commit
 if "%CH%"=="5" goto backup
 if "%CH%"=="6" goto compdry
 if "%CH%"=="7" goto compcommit
+if "%CH%"=="8" goto inspect
 if "%CH%"=="4" goto end
 goto menu
 
@@ -155,6 +157,14 @@ if /i not "%GO2%"=="YES" ( echo  Aborted - nothing committed. & pause & goto men
 "%PSQL%" -v DRY_RUN=0 -f "%~dp0import_composites.sql" >> "%~dp0result_composites.txt" 2>&1
 if errorlevel 1 ( echo  [X] the script reported an ERROR - see result_composites.txt ) else ( echo  [OK] COMMITTED - see result_composites.txt )
 notepad "%~dp0result_composites.txt"
+goto menu
+
+:inspect
+echo.
+echo INSPECT - read-only report, nothing is written.
+"%PSQL%" -f "%~dp0inspect_live.sql" > "%~dp0inspect.txt" 2>&1
+if errorlevel 1 ( echo  [X] inspection reported an ERROR - see inspect.txt ) else ( echo  [OK] done - see inspect.txt )
+notepad "%~dp0inspect.txt"
 goto menu
 
 :end
