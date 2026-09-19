@@ -130,3 +130,14 @@ Fix: live-side matches collapsed to one deterministic row per staged customer vi
 Supplier map safe (unique lower(trim(name)) index). Full sim after fix: identical anchors
 (2,738 / 7,606 / 2,691 / 348 / 30 / 27 / 41,990.479 / 46,962.079 / 8,104 journal / 0 stock-pair
 mismatch, pass-2 zero drift). Bat commit prompts now print host AND user (project ref visible).
+
+
+---
+
+## PRODUCTION COMMITTED — 2026-09-17 (project kkqbkumobeimwuscxztu)
+Fixed script (deterministic customer matching) dry-run AND commit on the true production project,
+identical numbers both times: sales 2,738 / items 7,606 / payments 2,691 / ledger 348 (30 openings
+= 41,990.479) / refs 27 / purchases 699 / expenses 3,275 / receivable 46,962.079 / must-be-0 block
+clean with only the known mismatch=1. Production-expected divergences: products_new 56,
+customers_new 24 (phone-merged with hand-created live customers), suppliers_new 6,
+stock 401 added / 4,058 skipped (live stock wins), opening rows 401 = added, journal 277.
