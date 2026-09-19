@@ -162,11 +162,21 @@ join mig_stage.customer_map m on m.mig_id = c.id
 where m.live_id = p.id and (p.notes is null or p.notes not like '%old_id=%');
 
 insert into public.pos_customers (id, customer_no, name, phone, address, notes, active)
-select c.id, c.customer_no_final, c.name, c.phone, c.address,
+with ph as (
+  select c.*,
+         regexp_replace(coalesce(c.phone,''), '[^0-9]', '', 'g') as digits,
+         row_number() over (partition by regexp_replace(coalesce(c.phone,''), '[^0-9]', '', 'g') order by c.old_id) as ph_rn
+  from mig_stage.customer_new c
+)
+select c.id, c.customer_no_final, c.name,
+       -- junk phones in the old system (000000, 09, 99999, ...): keep the customer, drop the phone,
+       -- otherwise the live phone_clean unique index rejects duplicate placeholders
+       case when length(c.digits) < 9 or c.digits ~ '^(.)\1*$' or c.ph_rn > 1 then null else c.phone end,
+       c.address,
        'old_id=' || c.old_id || ' | old_code=' || coalesce(c.old_code,'') ||
        case when c.customer_no_final <> c.customer_no then ' | كان ' || c.customer_no else '' end ||
        coalesce(' | ' || c.notes,''), c.active
-from mig_stage.customer_new c
+from ph c
 where not exists (select 1 from public.pos_customers p where p.id = c.id);
 
 -- ---------- sales cut sets ----------
