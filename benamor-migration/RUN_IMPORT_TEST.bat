@@ -61,8 +61,8 @@ echo ------------------------------------------------------------
 echo  Connected to: %PGHOST%  as %PGUSER%
 echo ------------------------------------------------------------
 echo   1 = prepare an EMPTY test project ^(run 56 migrations + current customers^)
-echo   2 = DRY RUN the 2026 import  ^(writes NOTHING - safe anywhere^)
-echo   3 = COMMIT the 2026 import to THIS database
+echo   2 = DRY RUN the v3 corrected import  ^(writes NOTHING^)
+echo   3 = COMMIT the v3 corrected import to THIS database
 echo   5 = BACKUP this database to a file FIRST  ^(pg_dump -Fc^)
 echo   6 = DRY RUN composite-products import  ^(690 kit rows^)
 echo   7 = COMMIT composite-products import  ^(asks YES first^)
@@ -122,19 +122,19 @@ goto menu
 :dryrun
 echo.
 echo DRY RUN - a report will open in Notepad. Nothing will be written.
-"%PSQL%" -v DRY_RUN=1 -f "%~dp0import_2026_cutover.sql" > "%~dp0result.txt" 2>&1
+"%PSQL%" -v DRY_RUN=1 -f "%~dp0import_v3_corrected.sql" > "%~dp0result.txt" 2>&1
 if errorlevel 1 ( echo  [X] the import script reported an ERROR - see result.txt ) else ( echo  [OK] script finished - see result.txt )
 notepad "%~dp0result.txt"
 goto menu
 
 :commit
 echo.
-echo  *** You are about to WRITE the 2026 import to:
+echo  *** You are about to WRITE the v3 corrected import to:
 echo      host: %PGHOST%
 echo      user: %PGUSER%   ^(check the project ref after postgres.^)
 set /p GO=Type YES to confirm :
 if /i not "%GO%"=="YES" ( echo  Aborted - nothing committed. & pause & goto menu )
-"%PSQL%" -v DRY_RUN=0 -f "%~dp0import_2026_cutover.sql" >> "%~dp0result.txt" 2>&1
+"%PSQL%" -v DRY_RUN=0 -f "%~dp0import_v3_corrected.sql" >> "%~dp0result.txt" 2>&1
 if errorlevel 1 ( echo  [X] the import script reported an ERROR - see result.txt ) else ( echo  [OK] COMMITTED - see result.txt )
 notepad "%~dp0result.txt"
 goto menu
